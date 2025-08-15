@@ -1,0 +1,959 @@
+"use client"
+
+import { useState, useEffect, useMemo } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  LogOut,
+  User,
+  Plus,
+  Save,
+  Trash2,
+  Edit3,
+  Filter,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react"
+import { useBackendAPI } from "@/hooks/use-backend-api"
+import { ConnectionStatus } from "@/components/connection-status"
+import { DebugInfo } from "@/components/debug-info"
+import { AgendaDebug } from "@/components/agenda-debug"
+import { mockEdificios, Especialidad } from "@/lib/mock-data"
+
+interface MedicalDashboardProps {
+  onLogout: () => void
+}
+
+interface Filters {
+  especialidad: string
+  edificio: string
+  tipo: string
+  search: string
+}
+
+interface CombinedRecord {
+  id: string
+  doctorId: number
+  agendaId: number
+  nombre: string
+  especialidad: string
+  tipo: "Consulta" | "Procedimiento"
+  edificio: string
+  piso: string
+  dia: string
+  horaInicio: string
+  horaFin: string
+  estado: string
+  procedimiento: string
+  isEditing: boolean
+}
+
+// Funciones helper para el campo TIPO
+const decodeTipo = (tipoNumerico: number): "Consulta" | "Procedimiento" => {
+  return tipoNumerico === 1 ? "Consulta" : "Procedimiento"
+}
+
+const encodeTipo = (tipoTexto: "Consulta" | "Procedimiento"): number => {
+  return tipoTexto === "Consulta" ? 1 : 2
+}
+
+export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
+  const {
+    loading,
+    error,
+    connectionStatus,
+    doctors,
+    agendas,
+    buildings,
+    specialties,
+    consultorios,
+    loadDoctors,
+    loadAgendas,
+    loadBuildings,
+    loadSpecialties,
+    loadConsultorios,
+    createAgenda,
+    updateAgenda,
+    deleteAgenda,
+    clearError,
+  } = useBackendAPI()
+
+  const [records, setRecords] = useState<CombinedRecord[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [hasChanges, setHasChanges] = useState(false)
+  
+  // Estado para el filtro de especialidad al crear agenda
+  const [selectedSpecialtyForNew, setSelectedSpecialtyForNew] = useState<string>("")
+  const [saveTimeouts, setSaveTimeouts] = useState<{[key: string]: NodeJS.Timeout}>({})
+
+  const [filters, setFilters] = useState<Filters>({
+    especialidad: "",
+    edificio: "",
+    tipo: "",
+    search: "",
+  })
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10)
+
+  // Función helper para obtener especialidadId desde la descripción
+  const getEspecialidadIdByDescripcion = (descripcion: string): number | null => {
+    if (!descripcion || descripcion === "todas") return null
+    const especialidad = specialties.find((esp: Especialidad) => esp.descripcion === descripcion)
+    return especialidad?.especialidadId || null
+  }
+
+  // Función para obtener médicos filtrados por especialidad usando especialidadId
+  const getDoctorsBySpecialty = (especialidadDescripcion: string) => {
+    if (!especialidadDescripcion || especialidadDescripcion === "todas") return doctors
+    const especialidadId = getEspecialidadIdByDescripcion(especialidadDescripcion)
+    if (!especialidadId) return []
+    
+    return doctors.filter((doctor: any) => 
+      doctor.especialidades && 
+      doctor.especialidades.some((esp: any) => esp.especialidadId === especialidadId)
+    )
+  }
+
+  // Cargar datos del backend
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      loadDoctors()
+      loadAgendas()
+      loadBuildings()
+      loadSpecialties()
+      loadConsultorios()
+    }
+  }, [connectionStatus, loadDoctors, loadAgendas, loadBuildings, loadSpecialties, loadConsultorios])
+
+  // Combinar datos de médicos y agendas (normalizando campos del backend)
+  useEffect(() => {
+    console.log('useEffect ejecutado - Doctores:', doctors.length, 'Agendas:', agendas.length)
+    
+    if (agendas.length > 0 && consultorios.length > 0) {
+      console.log('Estructura de agenda del backend:', agendas[0])
+      console.log('Consultorios disponibles:', consultorios.length)
+      if (doctors.length > 0) {
+        console.log('Estructura de medico del backend:', doctors[0])
+      }
+      
+      // Procesar agendas con información de consultorios
+
+      const combinedRecords: CombinedRecord[] = agendas.map((agenda: any) => {
+        const doctor = doctors.find((d: any) => d.id === agenda.codigo_prestador)
+
+        // Mapear día según código
+        const diasSemana = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+        const dia = diasSemana[agenda.codigo_dia] || 'Sin día'
+
+        // Formatear horas desde ISO string
+        const formatearHora = (isoString: string) => {
+          if (!isoString) return ''
+          try {
+            const fecha = new Date(isoString)
+            const horas = fecha.getHours().toString().padStart(2, '0')
+            const minutos = fecha.getMinutes().toString().padStart(2, '0')
+            return `${horas}:${minutos}`
+          } catch (e) {
+            console.warn('Error formateando hora:', isoString, e)
+            return ''
+          }
+        }
+
+        const horaInicio = formatearHora(agenda.hora_inicio)
+        const horaFin = formatearHora(agenda.hora_fin)
+
+        // Obtener primera especialidad del médico
+        const especialidad = doctor?.especialidades && doctor.especialidades.length > 0 
+          ? doctor.especialidades[0].descripcion 
+          : 'Sin especialidad'
+
+        // Mapear edificio y piso desde consultorio
+        const consultorio = consultorios.find((c: any) => c.codigo_consultorio === agenda.codigo_consultorio)
+        const edificioData = buildings.find((b: any) => b.codigo === consultorio?.codigo_edificio)
+        const edificioNombre = edificioData?.nombre || "Hospital Principal"
+        const pisoNombre = consultorio ? `Piso ${consultorio.codigo_piso}` : "1"
+
+        console.log('Mapeo consultorio y tipo:', {
+          agenda_consultorio: agenda.codigo_consultorio,
+          consultorio_encontrado: consultorio,
+          edificio_data: edificioData,
+          edificio_final: edificioNombre,
+          piso_final: pisoNombre,
+          tipo_numerico: agenda.tipo,
+          tipo_decodificado: decodeTipo(agenda.tipo || 1)
+        })
+
+        return {
+          id: `${agenda.codigo_agenda}-${doctor?.id || 0}`,
+          doctorId: doctor?.id || 0,
+          agendaId: agenda.codigo_agenda,
+          nombre: doctor?.nombres || "Doctor no encontrado",
+          especialidad,
+          // Decodificar el campo TIPO del backend
+          tipo: decodeTipo(agenda.tipo || 1),
+          edificio: edificioNombre,
+          piso: pisoNombre,
+          dia,
+          horaInicio,
+          horaFin,
+          estado: "Activa", // Estado por defecto
+          procedimiento: "", // Campo quemado
+          isEditing: false,
+        }
+      })
+      // Ordenar por fecha de creación/ID descendente para mostrar los más nuevos primero
+      const sortedRecords = combinedRecords.sort((a, b) => b.agendaId - a.agendaId)
+      setRecords(sortedRecords)
+      console.log('Registros combinados creados:', sortedRecords.length)
+      console.log('Primeros 3 registros:', sortedRecords.slice(0, 3))
+    } else if (agendas.length > 0 && consultorios.length === 0) {
+      console.log('Agendas cargadas pero aun no hay consultorios')
+    } else if (agendas.length > 0 && doctors.length === 0) {
+      console.log('Agendas cargadas pero aun no hay medicos')
+    } else if (doctors.length > 0 && agendas.length === 0) {
+      console.log('Medicos cargados pero aun no hay agendas')
+    } else {
+      console.log('Esperando datos del backend...', {
+        agendas: agendas.length,
+        consultorios: consultorios.length,
+        doctors: doctors.length
+      })
+    }
+  }, [doctors, agendas, consultorios, buildings])
+
+  const filteredRecords = useMemo(() => {
+    return records.filter((record) => {
+      const matchesEspecialidad = !filters.especialidad || record.especialidad === filters.especialidad
+      const matchesEdificio = !filters.edificio || record.edificio === filters.edificio
+      const matchesTipo = !filters.tipo || record.tipo === filters.tipo
+      const matchesSearch =
+        !filters.search ||
+        record.nombre.toLowerCase().includes(filters.search.toLowerCase()) ||
+        record.especialidad.toLowerCase().includes(filters.search.toLowerCase())
+
+      return matchesEspecialidad && matchesEdificio && matchesTipo && matchesSearch
+    })
+  }, [records, filters])
+
+  const paginatedRecords = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return filteredRecords.slice(startIndex, endIndex)
+  }, [filteredRecords, currentPage, itemsPerPage])
+
+  const totalPages = Math.ceil(filteredRecords.length / itemsPerPage)
+
+  const handleFilterChange = (key: keyof Filters, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }))
+    setCurrentPage(1)
+  }
+
+  const clearFilters = () => {
+    setFilters({
+      especialidad: "",
+      edificio: "",
+      tipo: "",
+      search: "",
+    })
+    setCurrentPage(1)
+  }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const handleEdit = (id: string) => {
+    setEditingId(id)
+    setRecords((prev) =>
+      prev.map((record) => (record.id === id ? { ...record, isEditing: true } : { ...record, isEditing: false })),
+    )
+  }
+
+  const handleSave = async (id: string) => {
+    console.log('=== GUARDANDO REGISTRO ===')
+    console.log('ID:', id)
+    
+    try {
+      const record = records.find(r => r.id === id)
+      if (!record) {
+        console.error('No se encontró el registro con ID:', id)
+        return
+      }
+      
+      console.log('Record encontrado:', record)
+      
+      // Salir del modo edición primero
+      setRecords(prev => 
+        prev.map(r => 
+          r.id === id ? { ...r, isEditing: false } : r
+        )
+      )
+      
+      setEditingId(null)
+      setHasChanges(false)
+      
+      console.log('Guardado completado (modo local)')
+      console.log('Cuando se reactive el guardado real, el payload incluirá:')
+      console.log({
+        codigo_prestador: record.doctorId,
+        codigo_consultorio: 1, // Obtener del registro
+        codigo_item_agendamiento: 482, // Obtener del registro
+        codigo_dia: 1, // Mapear desde record.dia
+        hora_inicio: '2025-01-01T' + record.horaInicio + ':00.000Z',
+        hora_fin: '2025-01-01T' + record.horaFin + ':00.000Z',
+        tipo: encodeTipo(record.tipo) // NUEVO CAMPO: 1 para Consulta, 2 para Procedimiento
+      })
+      
+    } catch (error) {
+      console.error('Error guardando:', error)
+    }
+  }
+
+  const handleCancel = (id: string) => {
+    setEditingId(null)
+    setRecords((prev) => prev.map((record) => (record.id === id ? { ...record, isEditing: false } : record)))
+  }
+
+  const handleFieldChange = (id: string, field: keyof CombinedRecord, value: string | number) => {
+    console.log(`Campo ${field} cambiado a:`, value, 'para registro:', id)
+    
+    setRecords((prev) =>
+      prev.map((record) => {
+        if (record.id === id) {
+          const updated = { ...record, [field]: value }
+          if (field === "edificio") {
+            updated.piso = ""
+          }
+          return updated
+        }
+        return record
+      }),
+    )
+    
+    setHasChanges(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      const record = records.find(r => r.id === id)
+      if (!record || record.agendaId === 0) {
+        // Si es un registro nuevo que no se ha guardado, solo eliminarlo del estado local
+        setRecords((prev) => prev.filter((r) => r.id !== id))
+        return
+      }
+
+      await deleteAgenda(record.agendaId)
+      // Los datos se recargan automáticamente en el hook
+    } catch (error) {
+      console.error("Error deleting record:", error)
+    }
+  }
+
+  const handleAddRecord = () => {
+    const newId = `new-${Date.now()}`
+    const newRecord: CombinedRecord = {
+      id: newId,
+      doctorId: 0,
+      agendaId: 0,
+      nombre: "",
+      especialidad: "",
+      tipo: "Consulta",
+      edificio: "Hospital Principal",
+      piso: "",
+      dia: "Lunes",
+      horaInicio: "08:00",
+      horaFin: "12:00",
+      estado: "Activa",
+      procedimiento: "",
+      isEditing: true,
+    }
+    // Agregar al inicio de la lista
+    setRecords((prev) => [newRecord, ...prev])
+    setEditingId(newId)
+  }
+
+  const handleToggleStatus = (id: string) => {
+    setRecords((prev) =>
+      prev.map((record) =>
+        record.id === id ? { ...record, estado: record.estado === "Activa" ? "Inactiva" : "Activa" } : record,
+      ),
+    )
+    setHasChanges(true)
+  }
+
+  const handleDownloadExcel = () => {
+    const headers = [
+      "Nombre del Médico",
+      "Especialidad",
+      "Tipo de Agenda",
+      "Procedimiento",
+      "Edificio",
+      "Piso",
+      "Día",
+      "Hora Inicio",
+      "Hora Fin",
+      "Estado",
+    ]
+
+    const csvContent = [
+      headers.join(","),
+      ...filteredRecords.map((record) =>
+        [
+          `"${record.nombre}"`,
+          `"${record.especialidad}"`,
+          `"${record.tipo}"`,
+          `"${record.procedimiento || "N/A"}"`,
+          `"${record.edificio}"`,
+          `"${record.piso}"`,
+          `"${record.dia}"`,
+          `"${record.horaInicio}"`,
+          `"${record.horaFin}"`,
+          `"${record.estado}"`,
+        ].join(","),
+      ),
+    ].join("\n")
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `agendas_medicas_${new Date().toISOString().split("T")[0]}.csv`)
+    link.style.visibility = "hidden"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const getAvailableFloors = (edificio: string): string[] => {
+    // Buscar por nombre o por código
+    const building = buildings.find((e) => e.nombre === edificio || e.codigo === edificio)
+    console.log('Buscando pisos para edificio:', edificio, 'Encontrado:', building)
+    return building?.pisos || []
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F9F4F6]">
+      <header className="bg-white border-b border-[#E5E5E5] px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="w-10 h-10 bg-[#7F0C43] rounded-full flex items-center justify-center">
+              <User className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-[#333333]">Sistema de Agendas Médicas</h1>
+              <p className="text-sm text-[#666666]">Hospital Vozandes Quito</p>
+            </div>
+          </div>
+          <Button
+            onClick={onLogout}
+            variant="outline"
+            className="border-[#E5E5E5] text-[#333333] hover:bg-[#F9F4F6] bg-transparent"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Cerrar Sesión
+          </Button>
+        </div>
+      </header>
+
+      <main className="p-6">
+        {/* Estado de conexión con el backend */}
+        <div className="mb-4">
+          <ConnectionStatus />
+        </div>
+
+
+        {/* Mostrar error si existe */}
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {error}
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-2"
+                onClick={clearError}
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Reintentar
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Mostrar skeleton mientras carga */}
+        {loading === 'loading' && (
+          <div className="space-y-4 mb-4">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        )}
+
+        <Card className="bg-white border-[#E5E5E5]">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xl text-[#333333]">Gestión de Médicos y Agendas</CardTitle>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleDownloadExcel}
+                  variant="outline"
+                  className="border-[#7F0C43] text-[#7F0C43] hover:bg-[#7F0C43] hover:text-white bg-transparent"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Descargar Excel
+                </Button>
+                <Button onClick={handleAddRecord} className="bg-[#7F0C43] hover:bg-[#6A0A38] text-white">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Agenda
+                </Button>
+                {hasChanges && (
+                  <Button 
+                    onClick={async () => {
+                      // Guardar todos los registros que han sido editados
+                      const editedRecords = records.filter(r => r.isEditing || r.agendaId === 0)
+                      console.log('Guardando registros editados:', editedRecords.length)
+                      
+                      for (const record of editedRecords) {
+                        try {
+                          await handleSave(record.id)
+                        } catch (error) {
+                          console.error('Error guardando registro:', record.id, error)
+                        }
+                      }
+                      
+                      setHasChanges(false)
+                    }} 
+                    className="bg-[#C84D80] hover:bg-[#B8437A] text-white"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Guardar Cambios
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-6 p-4 bg-[#F9F4F6] rounded-lg border border-[#E5E5E5]">
+              <div className="flex items-center gap-2 mb-4">
+                <Filter className="w-4 h-4 text-[#7F0C43]" />
+                <h3 className="font-semibold text-[#333333]">Filtros</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-[#333333]">Búsqueda</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-[#666666]" />
+                    <Input
+                      placeholder="Buscar médico..."
+                      value={filters.search}
+                      onChange={(e) => handleFilterChange("search", e.target.value)}
+                      className="pl-10 border-[#E5E5E5] focus:border-[#7F0C43]"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-[#333333]">Especialidad</label>
+                  <Select
+                    value={filters.especialidad}
+                    onValueChange={(value) => handleFilterChange("especialidad", value)}
+                  >
+                    <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                      <SelectValue placeholder="Seleccionar especialidad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todas">Todas las especialidades</SelectItem>
+                      {Array.isArray(specialties) && specialties.map((esp: Especialidad, index) => (
+                        <SelectItem key={`filter-specialty-${esp.especialidadId}-${index}`} value={esp.descripcion}>
+                          {esp.descripcion}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-[#333333]">Edificio</label>
+                  <Select value={filters.edificio} onValueChange={(value) => handleFilterChange("edificio", value)}>
+                    <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                      <SelectValue placeholder="Seleccionar edificio" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos los edificios</SelectItem>
+                      {Array.isArray(buildings) && buildings.map((edificio, index) => (
+                        <SelectItem key={`edificio-${edificio.codigo}-${index}`} value={edificio.codigo}>
+                          {edificio.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-[#333333]">Tipo de Agenda</label>
+                  <Select value={filters.tipo} onValueChange={(value) => handleFilterChange("tipo", value)}>
+                    <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                      <SelectValue placeholder="Seleccionar tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos los tipos</SelectItem>
+                      <SelectItem value="Consulta">Consulta</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  onClick={clearFilters}
+                  className="border-[#E5E5E5] text-[#333333] hover:bg-white bg-transparent"
+                >
+                  Limpiar Filtros
+                </Button>
+                <div className="text-sm text-[#666666]">
+                  Mostrando {paginatedRecords.length} de {filteredRecords.length} registros
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-[#E5E5E5]">
+                    <TableHead className="text-[#333333] font-semibold">Especialidad</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Nombre del Médico</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Tipo de Agenda</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Edificio</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Piso</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Día</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Hora Inicio</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Hora Fin</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Estado</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedRecords.map((record) => (
+                    <TableRow 
+                      key={record.id} 
+                      className={`border-[#E5E5E5] ${
+                        record.agendaId === 0 
+                          ? 'bg-blue-50 border-blue-200' 
+                          : record.isEditing 
+                            ? 'bg-yellow-50 border-yellow-200' 
+                            : ''
+                      }`}
+                    >
+                      {/* Primera columna: Especialidad */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Select
+                            value={record.especialidad}
+                            onValueChange={(value) => {
+                              handleFieldChange(record.id, "especialidad", value)
+                              // Resetear médico seleccionado cuando cambie la especialidad
+                              handleFieldChange(record.id, "nombre", "")
+                              handleFieldChange(record.id, "doctorId", 0)
+                            }}
+                          >
+                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                              <SelectValue placeholder="Seleccionar especialidad" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.isArray(specialties) && specialties.map((esp: Especialidad, index) => (
+                                <SelectItem key={`specialty-edit-${esp.especialidadId}-${index}`} value={esp.descripcion}>
+                                  {esp.descripcion}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-[#333333]">{record.especialidad}</span>
+                        )}
+                      </TableCell>
+                      {/* Segunda columna: Nombre del Médico */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Select
+                            value={record.doctorId.toString()}
+                            onValueChange={(value) => {
+                              const selectedDoctor = doctors.find((d: any) => d.id.toString() === value)
+                              if (selectedDoctor) {
+                                handleFieldChange(record.id, "nombre", selectedDoctor.nombres)
+                                handleFieldChange(record.id, "doctorId", selectedDoctor.id)
+                              }
+                            }}
+                            disabled={!record.especialidad}
+                          >
+                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                              <SelectValue placeholder={record.especialidad ? "Seleccionar médico" : "Primero seleccione especialidad"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getDoctorsBySpecialty(record.especialidad).map((doctor: any, index: number) => (
+                                <SelectItem key={`doctor-${doctor.id}-${index}`} value={doctor.id.toString()}>
+                                  {doctor.nombres}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-[#333333]">{record.nombre}</span>
+                        )}
+                      </TableCell>
+                      {/* Tercera columna: Tipo de Agenda (solo Consulta) */}
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className="bg-[#C84D80] text-white"
+                        >
+                          Consulta
+                        </Badge>
+                      </TableCell>
+
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Select
+                            value={record.edificio}
+                            onValueChange={(value) => handleFieldChange(record.id, "edificio", value)}
+                          >
+                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {mockEdificios.map((edificio, index) => (
+                                <SelectItem key={`mock-edificio-${edificio.codigo}-${index}`} value={edificio.nombre}>
+                                  {edificio.nombre}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-[#333333]">{record.edificio}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Select
+                            value={record.piso}
+                            onValueChange={(value) => handleFieldChange(record.id, "piso", value)}
+                            disabled={!record.edificio}
+                          >
+                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                              <SelectValue placeholder="Seleccionar piso" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getAvailableFloors(record.edificio).map((piso, index) => (
+                                <SelectItem key={`piso-${record.id}-${piso}-${index}`} value={piso}>
+                                  {piso}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-[#333333]">{record.piso}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Select
+                            value={record.dia}
+                            onValueChange={(value) => handleFieldChange(record.id, "dia", value)}
+                          >
+                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Lunes">Lunes</SelectItem>
+                              <SelectItem value="Martes">Martes</SelectItem>
+                              <SelectItem value="Miércoles">Miércoles</SelectItem>
+                              <SelectItem value="Jueves">Jueves</SelectItem>
+                              <SelectItem value="Viernes">Viernes</SelectItem>
+                              <SelectItem value="Sábado">Sábado</SelectItem>
+                              <SelectItem value="Domingo">Domingo</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-[#333333]">{record.dia}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Input
+                            type="time"
+                            value={record.horaInicio}
+                            onChange={(e) => handleFieldChange(record.id, "horaInicio", e.target.value)}
+                            className="border-[#E5E5E5] focus:border-[#7F0C43]"
+                          />
+                        ) : (
+                          <span className="text-[#333333]">{record.horaInicio}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Input
+                            type="time"
+                            value={record.horaFin}
+                            onChange={(e) => handleFieldChange(record.id, "horaFin", e.target.value)}
+                            className="border-[#E5E5E5] focus:border-[#7F0C43]"
+                          />
+                        ) : (
+                          <span className="text-[#333333]">{record.horaFin}</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={record.estado === "Activa" ? "default" : "secondary"}
+                            className={
+                              record.estado === "Activa" ? "bg-green-500 text-white" : "bg-gray-500 text-white"
+                            }
+                          >
+                            {record.estado}
+                          </Badge>
+                          {record.agendaId === 0 && (
+                            <Badge variant="outline" className="bg-blue-100 text-blue-800 text-xs">
+                              Nuevo
+                            </Badge>
+                          )}
+                          {!record.isEditing && record.agendaId !== 0 && (
+                            <Switch
+                              checked={record.estado === "Activa"}
+                              onCheckedChange={() => handleToggleStatus(record.id)}
+                              className="data-[state=checked]:bg-[#7F0C43]"
+                            />
+                          )}
+                        </div>
+                      </TableCell>
+
+                      <TableCell>
+                        <div className="flex gap-2">
+                          {record.isEditing ? (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => handleSave(record.id)}
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                <Save className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleCancel(record.id)}
+                                className="border-[#E5E5E5]"
+                              >
+                                Cancelar
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleEdit(record.id)}
+                                className="border-[#E5E5E5] text-[#333333]"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDelete(record.id)}
+                                className="border-red-200 text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-[#E5E5E5]">
+                <div className="text-sm text-[#666666]">
+                  Página {currentPage} de {totalPages}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="border-[#E5E5E5] text-[#333333]"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Anterior
+                  </Button>
+
+                  <div className="flex gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const pageNum = i + 1
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={currentPage === pageNum ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handlePageChange(pageNum)}
+                          className={
+                            currentPage === pageNum ? "bg-[#7F0C43] text-white" : "border-[#E5E5E5] text-[#333333]"
+                          }
+                        >
+                          {pageNum}
+                        </Button>
+                      )
+                    })}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="border-[#E5E5E5] text-[#333333]"
+                  >
+                    Siguiente
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {filteredRecords.length === 0 && (
+              <div className="text-center py-8 text-[#666666]">
+                <div className="mb-4">
+                  <strong>Estado de datos:</strong><br/>
+                  Médicos: {doctors.length} | Agendas: {agendas.length} | Registros: {records.length}
+                </div>
+                {filters.search || filters.especialidad || filters.edificio || filters.tipo
+                  ? "No se encontraron registros que coincidan con los filtros aplicados."
+                  : agendas.length === 0 && doctors.length === 0
+                    ? "Cargando datos del backend..."
+                    : "No hay registros disponibles. Haga clic en 'Agregar Médico/Agenda' para comenzar."}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  )
+}
