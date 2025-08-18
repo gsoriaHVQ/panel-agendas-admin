@@ -33,7 +33,7 @@ export interface Agenda {
   codigo_dia: number
   hora_inicio: string
   hora_fin: string
-  tipo: number // 1 = Consulta, otro = Procedimiento
+  tipo: string // "C" = Consulta, "P" = Procedimiento
   // Campos legacy para compatibilidad
   id?: number
   edificio?: string
@@ -46,102 +46,96 @@ export interface Agenda {
 }
 
 export interface Edificio {
-  codigo: string
-  nombre: string
+  // Soporte para estructura nueva del backend
+  codigo_edificio?: number
+  descripcion_edificio?: string
+  // Soporte legacy para mocks/compatibilidad
+  codigo?: string
+  nombre?: string
   descripcion?: string
-  pisos: string[]
+  pisos?: string[]
 }
 
 export const mockDoctors: Doctor[] = [
   {
     id: 1,
-    nombre: "Dr. Juan Pérez",
-    especialidad: "Cardiología",
-    codigo_item: "MED001",
+    nombres: "Dr. Juan Pérez",
+    especialidades: [{ especialidadId: 1, descripcion: "Cardiología", tipo: "AMBULATORY" }],
     estadisticas: { pacientes: 25 },
   },
   {
     id: 2,
-    nombre: "Dra. María Torres",
-    especialidad: "Pediatría",
-    codigo_item: "MED002",
+    nombres: "Dra. María Torres",
+    especialidades: [{ especialidadId: 2, descripcion: "Pediatría", tipo: "AMBULATORY" }],
     estadisticas: { pacientes: 18 },
   },
   {
     id: 3,
-    nombre: "Dr. Carlos Mendoza",
-    especialidad: "Neurología",
-    codigo_item: "MED003",
+    nombres: "Dr. Carlos Mendoza",
+    especialidades: [{ especialidadId: 3, descripcion: "Neurología", tipo: "AMBULATORY" }],
     estadisticas: { pacientes: 32 },
   },
   {
     id: 4,
-    nombre: "Dra. Ana Rodríguez",
-    especialidad: "Ginecología",
-    codigo_item: "MED004",
+    nombres: "Dra. Ana Rodríguez",
+    especialidades: [{ especialidadId: 4, descripcion: "Ginecología", tipo: "AMBULATORY" }],
     estadisticas: { pacientes: 28 },
   },
 ]
 
 export const mockAgendas: Agenda[] = [
   {
-    id: 101,
-    codigo_prestador: "MED001",
-    tipo: "Consulta",
-    edificio: "Hospital Principal",
-    piso: "Planta Baja",
-    dia: "Lunes",
-    horaInicio: "08:00",
-    horaFin: "12:00",
-    estado: "Activa",
+    codigo_agenda: 101,
+    codigo_consultorio: 1,
+    codigo_prestador: 1,
+    codigo_item_agendamiento: 1,
+    codigo_dia: 1,
+    hora_inicio: "2025-01-01T08:00:00.000Z",
+    hora_fin: "2025-01-01T12:00:00.000Z",
+    tipo: "C",
   },
   {
-    id: 102,
-    codigo_prestador: "MED002",
-    tipo: "Procedimiento",
-    edificio: "Bless",
-    piso: "3",
-    dia: "Martes",
-    horaInicio: "09:00",
-    horaFin: "11:00",
-    estado: "Activa",
-    procedimiento: "Ecocardiograma",
+    codigo_agenda: 102,
+    codigo_consultorio: 2,
+    codigo_prestador: 2,
+    codigo_item_agendamiento: 2,
+    codigo_dia: 2,
+    hora_inicio: "2025-01-01T09:00:00.000Z",
+    hora_fin: "2025-01-01T11:00:00.000Z",
+    tipo: "P",
   },
   {
-    id: 103,
-    codigo_prestador: "MED003",
-    tipo: "Consulta",
-    edificio: "Hospital Principal",
-    piso: "2",
-    dia: "Miércoles",
-    horaInicio: "14:00",
-    horaFin: "18:00",
-    estado: "Activa",
+    codigo_agenda: 103,
+    codigo_consultorio: 1,
+    codigo_prestador: 3,
+    codigo_item_agendamiento: 3,
+    codigo_dia: 3,
+    hora_inicio: "2025-01-01T14:00:00.000Z",
+    hora_fin: "2025-01-01T18:00:00.000Z",
+    tipo: "C",
   },
   {
-    id: 104,
-    codigo_prestador: "MED004",
-    tipo: "Procedimiento",
-    edificio: "Bless",
-    piso: "5",
-    dia: "Jueves",
-    horaInicio: "10:00",
-    horaFin: "12:00",
-    estado: "Activa",
-    procedimiento: "Laparoscopía",
+    codigo_agenda: 104,
+    codigo_consultorio: 2,
+    codigo_prestador: 4,
+    codigo_item_agendamiento: 4,
+    codigo_dia: 4,
+    hora_inicio: "2025-01-01T10:00:00.000Z",
+    hora_fin: "2025-01-01T12:00:00.000Z",
+    tipo: "P",
   },
 ]
 
 export const mockEdificios: Edificio[] = [
   {
-    codigo: "HOSP",
-    nombre: "Hospital Principal",
-    pisos: ["Planta Baja", "1", "2", "3", "4"],
+    codigo_edificio: 1,
+    descripcion_edificio: "HOSPITAL PRINCIPAL",
+    pisos: ["Piso 0", "Piso 1", "Piso 2", "Piso 3", "Piso 4"],
   },
   {
-    codigo: "BLESS",
-    nombre: "Bless",
-    pisos: ["Planta Baja", "1", "2", "3", "4", "5", "6", "7"],
+    codigo_edificio: 2,
+    descripcion_edificio: "BLESS",
+    pisos: ["Piso 0", "Piso 1", "Piso 2", "Piso 3", "Piso 4", "Piso 5", "Piso 6", "Piso 7"],
   },
 ]
 
