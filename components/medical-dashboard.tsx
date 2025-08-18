@@ -54,6 +54,8 @@ interface CombinedRecord {
   codigoItemAgendamiento: number
   edificio: string
   piso: string
+  codigoConsultorio?: number
+  consultorioDescripcion?: string
   dia: string
   horaInicio: string
   horaFin: string
@@ -184,11 +186,12 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           ? doctor.especialidades[0].descripcion 
           : 'Sin especialidad'
 
-        // Mapear edificio y piso desde consultorio
+        // Mapear edificio, piso y descripción de consultorio
         const consultorio = consultorios.find((c: any) => c.codigo_consultorio === agenda.codigo_consultorio)
         const edificioData = buildings.find((b: any) => b.codigo_edificio === consultorio?.codigo_edificio)
         const edificioNombre = edificioData?.descripcion_edificio || "Hospital Principal"
         const pisoNombre = consultorio ? `Piso ${consultorio.codigo_piso}` : "1"
+        const consultorioDescripcion = consultorio?.descripcion_consultorio || consultorio?.DES_CONSULTORIO || ""
 
         console.log('Mapeo consultorio y tipo:', {
           agenda_consultorio: agenda.codigo_consultorio,
@@ -211,6 +214,8 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           codigoItemAgendamiento: agenda.codigo_item_agendamiento || 0,
           edificio: edificioNombre,
           piso: pisoNombre,
+          codigoConsultorio: agenda.codigo_consultorio,
+          consultorioDescripcion,
           dia,
           horaInicio,
           horaFin,
@@ -758,6 +763,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                     <TableHead className="text-[#333333] font-semibold">Item Agendamiento</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Edificio</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Piso</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Consultorio</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Día</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Hora Inicio</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Hora Fin</TableHead>
@@ -928,6 +934,9 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         ) : (
                           <span className="text-[#333333]">{record.piso}</span>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-[#333333]">{record.consultorioDescripcion || record.codigoConsultorio || '-'}</span>
                       </TableCell>
                       <TableCell>
                         {record.isEditing ? (

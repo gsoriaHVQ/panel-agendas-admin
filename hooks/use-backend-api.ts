@@ -314,7 +314,16 @@ export function useBackendAPI() {
       if (result.success) {
         const rawData = result.data?.data || result.data
         const consultoriosData = Array.isArray(rawData) ? rawData : []
-        setConsultorios(consultoriosData)
+        // Normalizar llaves posibles del backend (CD_* mayúsculas)
+        const normalized = consultoriosData.map((c: any) => ({
+          codigo_consultorio: c.codigo_consultorio ?? c.CD_CONSULTORIO ?? c.cd_consultorio ?? null,
+          codigo_edificio: c.codigo_edificio ?? c.CD_EDIFICIO ?? c.cd_edificio ?? null,
+          codigo_piso: c.codigo_piso ?? c.CD_PISO ?? c.cd_piso ?? null,
+          descripcion_consultorio: c.descripcion_consultorio ?? c.DES_CONSULTORIO ?? c.des_consultorio ?? c.descripcion ?? null,
+          // preservar resto por si se usa en otro lado
+          ...c,
+        }))
+        setConsultorios(normalized)
         setError(null)
         setLoading('success')
       } else {
