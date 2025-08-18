@@ -29,6 +29,8 @@ import { useBackendAPI } from "@/hooks/use-backend-api"
 import { ConnectionStatus } from "@/components/connection-status"
 import { DebugInfo } from "@/components/debug-info"
 import { AgendaDebug } from "@/components/agenda-debug"
+import BtnExportarStaff from "@/src/components/BtnExportarStaff"
+import { StaffItem } from "@/utils/exportStaffFromTemplate"
 import { mockEdificios, Especialidad } from "@/lib/mock-data"
 
 interface MedicalDashboardProps {
@@ -529,47 +531,17 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
     setHasChanges(true)
   }
 
-  const handleDownloadExcel = () => {
-    const headers = [
-      "Nombre del Médico",
-      "Especialidad",
-      "Tipo de Agenda",
-      "Procedimiento",
-      "Edificio",
-      "Piso",
-      "Día",
-      "Hora Inicio",
-      "Hora Fin",
-      "Estado",
-    ]
-
-    const csvContent = [
-      headers.join(","),
-      ...filteredRecords.map((record) =>
-        [
-          `"${record.nombre}"`,
-          `"${record.especialidad}"`,
-          `"${record.tipo}"`,
-          `"${record.procedimiento || "N/A"}"`,
-          `"${record.edificio}"`,
-          `"${record.piso}"`,
-          `"${record.dia}"`,
-          `"${record.horaInicio}"`,
-          `"${record.horaFin}"`,
-          `"${record.estado}"`,
-        ].join(","),
-      ),
-    ].join("\n")
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const link = document.createElement("a")
-    const url = URL.createObjectURL(blob)
-    link.setAttribute("href", url)
-    link.setAttribute("download", `agendas_medicas_${new Date().toISOString().split("T")[0]}.csv`)
-    link.style.visibility = "hidden"
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  // La funcionalidad de descarga Excel se movió al componente ExcelDownload
+  
+  // Convertir datos a formato StaffItem para exportar con plantilla
+  const convertToStaffData = (): StaffItem[] => {
+    return filteredRecords.map((record) => ({
+      especialidad: record.especialidad,
+      medico: record.nombre,
+      dia: record.dia,
+      consultorio: record.piso ? `${record.edificio} - ${record.piso}` : record.edificio,
+      hora: `${record.horaInicio}-${record.horaFin}`
+    }))
   }
 
   const getAvailableFloors = (edificio: string): string[] => {
@@ -658,14 +630,8 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
             <div className="flex items-center justify-between">
               <CardTitle className="text-xl text-[#333333]">Gestión de Médicos y Agendas</CardTitle>
               <div className="flex gap-2">
-                <Button
-                  onClick={handleDownloadExcel}
-                  variant="outline"
-                  className="border-[#7F0C43] text-[#7F0C43] hover:bg-[#7F0C43] hover:text-white bg-transparent"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Descargar Excel
-                </Button>
+                
+                <BtnExportarStaff />
                 <Button onClick={handleAddRecord} className="bg-[#7F0C43] hover:bg-[#6A0A38] text-white">
                   <Plus className="w-4 h-4 mr-2" />
                   Agenda
