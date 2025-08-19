@@ -6,19 +6,25 @@
 FROM node:18-alpine AS deps
 WORKDIR /app
 
+# Instalar pnpm globalmente
+RUN npm install -g pnpm
+
 # Instalar dependencias del sistema necesarias
 RUN apk add --no-cache libc6-compat
 
 # Copiar archivos de dependencias
-COPY package.json package-lock.json* ./
+COPY package.json pnpm-lock.yaml* ./
 COPY next.config.mjs ./
 
-# Instalar todas las dependencias (incluyendo devDependencies)
-RUN npm ci --only=production && npm cache clean --force
+# Instalar todas las dependencias usando pnpm
+RUN pnpm install --frozen-lockfile --prod
 
 # Etapa 2: Builder - Compilar la aplicación
 FROM node:18-alpine AS builder
 WORKDIR /app
+
+# Instalar pnpm globalmente
+RUN npm install -g pnpm
 
 # Copiar dependencias instaladas
 COPY --from=deps /app/node_modules ./node_modules
@@ -29,7 +35,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
 # Construir la aplicación
-RUN npm run build
+RUN pnpm run build
 
 # Etapa 3: Runner - Imagen final optimizada
 FROM node:18-alpine AS runner
