@@ -28,9 +28,9 @@ import {
   RefreshCw,
   Check,
   ChevronsUpDown,
+  Copy,
 } from "lucide-react"
 import { useBackendAPI } from "@/hooks/use-backend-api"
-import { ConnectionStatus } from "@/components/connection-status"
 import { DebugInfo } from "@/components/debug-info"
 import { AgendaDebug } from "@/components/agenda-debug"
 import BtnExportarStaff from "@/src/components/BtnExportarStaff"
@@ -111,6 +111,10 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
   
   // Estado para controlar los popovers de búsqueda
   const [openPopovers, setOpenPopovers] = useState<{[key: string]: boolean}>({})
+  
+  // Estado para búsqueda general de doctores
+  const [doctorSearchOpen, setDoctorSearchOpen] = useState(false)
+  const [doctorSearchQuery, setDoctorSearchQuery] = useState("")
 
   // Funciones helper para manejar los popovers
   const togglePopover = (key: string) => {
@@ -139,14 +143,18 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
 
   // Función para obtener médicos filtrados por especialidad usando especialidadId
   const getDoctorsBySpecialty = (especialidadDescripcion: string) => {
-    if (!especialidadDescripcion || especialidadDescripcion === "todas") return doctors
+    if (!especialidadDescripcion || especialidadDescripcion === "todas") {
+      return [...doctors].sort((a: any, b: any) => a.nombres.localeCompare(b.nombres))
+    }
     const especialidadId = getEspecialidadIdByDescripcion(especialidadDescripcion)
     if (!especialidadId) return []
     
-    return doctors.filter((doctor: any) => 
-      doctor.especialidades && 
-      doctor.especialidades.some((esp: any) => esp.especialidadId === especialidadId)
-    )
+    return doctors
+      .filter((doctor: any) => 
+        doctor.especialidades && 
+        doctor.especialidades.some((esp: any) => esp.especialidadId === especialidadId)
+      )
+      .sort((a: any, b: any) => a.nombres.localeCompare(b.nombres))
   }
 
   // Cargar datos del backend
@@ -180,22 +188,79 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
         const diasSemana = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
         const dia = diasSemana[agenda.codigo_dia] || 'Sin día'
 
-        // Formatear horas desde ISO string
-        const formatearHora = (isoString: string) => {
-          if (!isoString) return ''
+        // Formatear horas desde diferentes formatos de BD
+        const formatearHora = (horaString: string) => {
+          console.log('formatearHora - entrada:', horaString, 'tipo:', typeof horaString)
+          
+          if (!horaString) {
+            console.warn('Hora vacía en formatearHora')
+            return ''
+          }
+          
           try {
-            const fecha = new Date(isoString)
-            const horas = fecha.getHours().toString().padStart(2, '0')
-            const minutos = fecha.getMinutes().toString().padStart(2, '0')
-            return `${horas}:${minutos}`
+            // Si ya viene en formato HH:MM, devolverlo tal como está
+            if (horaString.match(/^\d{1,2}:\d{2}$/)) {
+              const [horas, minutos] = horaString.split(':')
+              const resultado = `${String(horas).padStart(2, '0')}:${minutos}`
+              console.log('Ya es formato HH:MM, devolviendo:', resultado)
+              return resultado
+            }
+            
+            // Si viene en formato de fecha completa (YYYY-MM-DD HH:MM:SS o YYYY-MM-DD HH:MM)
+            if (horaString.includes('-') && horaString.includes(' ')) {
+              // Parsear manualmente para evitar problemas de timezone
+              const partes = horaString.split(' ')
+              if (partes.length === 2) {
+                const horaParte = partes[1]
+                // Extraer solo HH:MM si viene con segundos
+                if (horaParte.match(/^\d{1,2}:\d{2}:\d{2}/)) {
+                  const resultado = horaParte.substring(0, 5)
+                  console.log('Extrayendo HH:MM de fecha con segundos:', `${horaString} -> ${resultado}`)
+                  return resultado
+                }
+                // Si ya viene como HH:MM
+                if (horaParte.match(/^\d{1,2}:\d{2}$/)) {
+                  const resultado = horaParte
+                  console.log('Extrayendo hora de fecha completa:', `${horaString} -> ${resultado}`)
+                  return resultado
+                }
+              }
+            }
+            
+            // Si viene como ISO string (con T)
+            if (horaString.includes('T')) {
+              const fecha = new Date(horaString)
+              if (!isNaN(fecha.getTime())) {
+                const horas = fecha.getHours().toString().padStart(2, '0')
+                const minutos = fecha.getMinutes().toString().padStart(2, '0')
+                const resultado = `${horas}:${minutos}`
+                console.log('Convirtiendo ISO string a HH:MM:', `${horaString} -> ${resultado}`)
+                return resultado
+              }
+            }
+            
+            console.warn('Formato de hora no reconocido:', horaString)
+            return ''
           } catch (e) {
-            console.warn('Error formateando hora:', isoString, e)
+            console.warn('Error formateando hora:', horaString, e)
             return ''
           }
         }
 
+        console.log('Formato de hora desde BD:', {
+          hora_inicio_raw: agenda.hora_inicio,
+          hora_fin_raw: agenda.hora_fin,
+          tipo_hora_inicio: typeof agenda.hora_inicio,
+          tipo_hora_fin: typeof agenda.hora_fin
+        })
+        
         const horaInicio = formatearHora(agenda.hora_inicio)
         const horaFin = formatearHora(agenda.hora_fin)
+        
+        console.log('Horas formateadas:', {
+          hora_inicio_formateada: horaInicio,
+          hora_fin_formateada: horaFin
+        })
 
         // Buscar la especialidad según el codigo_item_agendamiento de la agenda
         let especialidad = 'Sin especialidad'
@@ -281,16 +346,38 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
   }, [doctors, agendas, consultorios, buildings])
 
   const filteredRecords = useMemo(() => {
-    return records.filter((record) => {
-      const matchesEspecialidad = !filters.especialidad || record.especialidad === filters.especialidad
-      const matchesEdificio = !filters.edificio || record.edificio === filters.edificio
-      const matchesTipo = !filters.tipo || record.tipo === filters.tipo
+    const filtered = records.filter((record) => {
+      const matchesEspecialidad = 
+        !filters.especialidad || 
+        filters.especialidad === "todas" || 
+        record.especialidad === filters.especialidad
+      
+      const matchesEdificio = 
+        !filters.edificio || 
+        filters.edificio === "todos" || 
+        record.edificio === filters.edificio
+      
+      const matchesTipo = 
+        !filters.tipo || 
+        filters.tipo === "todos" || 
+        record.tipo === filters.tipo
+      
       const matchesSearch =
         !filters.search ||
         record.nombre.toLowerCase().includes(filters.search.toLowerCase()) ||
-        record.especialidad.toLowerCase().includes(filters.search.toLowerCase())
+        record.especialidad.toLowerCase().includes(filters.search.toLowerCase()) ||
+        record.edificio.toLowerCase().includes(filters.search.toLowerCase()) ||
+        record.dia.toLowerCase().includes(filters.search.toLowerCase()) ||
+        (record.consultorioDescripcion && record.consultorioDescripcion.toLowerCase().includes(filters.search.toLowerCase()))
 
       return matchesEspecialidad && matchesEdificio && matchesTipo && matchesSearch
+    })
+
+    // Ordenar por especialidad primero, luego por nombre del médico
+    return filtered.sort((a, b) => {
+      const especialidadCompare = a.especialidad.localeCompare(b.especialidad)
+      if (especialidadCompare !== 0) return especialidadCompare
+      return a.nombre.localeCompare(b.nombre)
     })
   }, [records, filters])
 
@@ -333,18 +420,41 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
     const y = now.getFullYear()
     const m = String(now.getMonth() + 1).padStart(2, '0')
     const d = String(now.getDate()).padStart(2, '0')
-    return `${y}-${m}-${d}`
+    const resultado = `${y}-${m}-${d}`
+    console.log('getTodayDateString:', resultado)
+    return resultado
   }
 
   // Formato requerido por backend: "YYYY-MM-DD HH:MM"
   const formatearHoraBackend = (horaString: string): string => {
+    console.log('formatearHoraBackend - entrada:', horaString, 'tipo:', typeof horaString)
+    
     if (!horaString) {
-      const hoy = getTodayDateString()
-      return `${hoy} 00:00`
+      console.warn('Hora vacía, usando 00:00')
+      return '1900-01-01 00:00'
     }
-    const [horas, minutos] = horaString.split(':')
-    const hoy = getTodayDateString()
-    return `${hoy} ${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}`
+    
+    // Si ya viene en formato completo de fecha, extraer solo la hora y usar fecha fija
+    if (horaString.includes('-') && horaString.includes(' ')) {
+      const partes = horaString.split(' ')
+      if (partes.length === 2) {
+        const horaParte = partes[1]
+        const resultado = `1900-01-01 ${horaParte}`
+        console.log('Extrayendo hora de fecha completa:', `${horaString} -> ${resultado}`)
+        return resultado
+      }
+    }
+    
+    // Si viene solo en formato HH:MM, agregar fecha fija
+    if (horaString.match(/^\d{1,2}:\d{2}$/)) {
+      const [horas, minutos] = horaString.split(':')
+      const resultado = `1900-01-01 ${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}`
+      console.log('Convirtiendo HH:MM a formato con fecha fija:', `${horaString} -> ${resultado}`)
+      return resultado
+    }
+    
+    console.warn('Formato de hora no reconocido:', horaString)
+    return `1900-01-01 ${horaString}`
   }
 
   const mapearDiaACodigo = (dia: string): number => {
@@ -415,17 +525,54 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           horaInicio: record.horaInicio,
           horaFin: record.horaFin
         })
+        alert('Por favor complete todos los campos requeridos, incluyendo las horas de inicio y fin.')
         return
       }
+      
+      // Validar que las horas tengan formato correcto
+      if (!record.horaInicio.match(/^\d{1,2}:\d{2}$/) || !record.horaFin.match(/^\d{1,2}:\d{2}$/)) {
+        console.error('Formato de hora inválido:', {
+          horaInicio: record.horaInicio,
+          horaFin: record.horaFin
+        })
+        alert('Por favor ingrese horas válidas en formato HH:MM')
+        return
+      }
+      const horaInicioFormateada = formatearHoraBackend(record.horaInicio)
+      const horaFinFormateada = formatearHoraBackend(record.horaFin)
+      
+      console.log('=== VALORES DE HORA ANTES DE GUARDAR ===')
+      console.log('Record completo:', record)
+      console.log('Estado actual de records:', records)
+      console.log('Record encontrado en estado:', records.find(r => r.id === id))
+      console.log('Formateo de horas para backend:', {
+        horaInicio_original: record.horaInicio,
+        horaFin_original: record.horaFin,
+        horaInicio_formateada: horaInicioFormateada,
+        horaFin_formateada: horaFinFormateada
+      })
+      console.log('=== FIN VALORES DE HORA ===')
+      
       const payload: any = {
         codigo_prestador: record.doctorId,
         codigo_consultorio: codigoConsultorio,
         codigo_item_agendamiento: codigoItemAgendamiento,
         codigo_dia: mapearDiaACodigo(record.dia),
-        hora_inicio: formatearHoraBackend(record.horaInicio),
-        hora_fin: formatearHoraBackend(record.horaFin),
+        hora_inicio: horaInicioFormateada,
+        hora_fin: horaFinFormateada,
         tipo: encodeTipo(record.tipo)
       }
+      
+      // Log detallado del payload para debugging
+      console.log('=== PAYLOAD DETALLADO ===')
+      console.log('codigo_prestador:', payload.codigo_prestador, 'tipo:', typeof payload.codigo_prestador)
+      console.log('codigo_consultorio:', payload.codigo_consultorio, 'tipo:', typeof payload.codigo_consultorio)
+      console.log('codigo_item_agendamiento:', payload.codigo_item_agendamiento, 'tipo:', typeof payload.codigo_item_agendamiento)
+      console.log('codigo_dia:', payload.codigo_dia, 'tipo:', typeof payload.codigo_dia)
+      console.log('hora_inicio:', payload.hora_inicio, 'tipo:', typeof payload.hora_inicio)
+      console.log('hora_fin:', payload.hora_fin, 'tipo:', typeof payload.hora_fin)
+      console.log('tipo:', payload.tipo, 'tipo:', typeof payload.tipo)
+      console.log('=== FIN PAYLOAD DETALLADO ===')
       
       // Solo incluir codigo_agenda para actualizaciones
       if (record.agendaId !== 0) {
@@ -436,9 +583,11 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
       
       console.log('PAYLOAD PARA BACKEND:')
       console.log(JSON.stringify(payload, null, 2))
+      console.log('URL del endpoint:', `/api/agnd-agenda/${record.agendaId}`)
+      console.log('Método: PUT')
       
       let saveResult = null
-      
+
       if (record.agendaId === 0) {
         // NUEVAS AGENDAS - Intentar guardar en backend
         console.log('Intentando crear nueva agenda en backend...')
@@ -450,14 +599,16 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           console.log('Payload para createAgenda:', createPayload)
           saveResult = await createAgenda(createPayload)
           
-          if (saveResult) {
-            console.log('Nueva agenda creada exitosamente:', saveResult)
-            // Remover el registro temporal y recargar datos
-            setRecords(prev => prev.filter(r => r.id !== id))
-            await loadAgendas()
-            setHasChanges(false)
-            return // Salir temprano, no continuar con el resto
-          }
+                  if (saveResult) {
+          console.log('Nueva agenda creada exitosamente:', saveResult)
+          console.log('Respuesta del backend después de crear:', saveResult)
+          // Solo salir del modo edición sin recargar datos
+          setRecords(prev => prev.map(r => 
+            r.id === id ? { ...r, isEditing: false } : r
+          ))
+          setHasChanges(false)
+          return // Salir temprano, no continuar con el resto
+        }
         } catch (error) {
           console.error('Error creando agenda:', error)
           saveResult = null
@@ -471,6 +622,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           
           if (saveResult) {
             console.log('Agenda actualizada exitosamente:', saveResult)
+            console.log('Respuesta del backend después de actualizar:', saveResult)
           }
         } catch (error) {
           console.error('Error actualizando agenda:', error)
@@ -486,18 +638,22 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
       
       if (saveResult) {
         console.log('Guardado exitoso en backend:', saveResult)
-        // Recargar datos para reflejar cambios
-        await loadAgendas()
+        // No recargar datos para evitar problemas de formateo
+        console.log('Manteniendo datos locales sin recargar')
       } else {
         console.warn('Guardado falló, manteniendo cambios locales')
       }
       
       // Salir del modo edición
-      setRecords(prev => 
-        prev.map(r => 
+      setRecords(prev => {
+        const updated = prev.map(r => 
           r.id === id ? { ...r, isEditing: false } : r
         )
-      )
+        console.log('=== ESTADO DESPUÉS DE GUARDAR ===')
+        console.log('Record actualizado:', updated.find(r => r.id === id))
+        console.log('=== FIN ESTADO DESPUÉS DE GUARDAR ===')
+        return updated
+      })
       
       setEditingId(null)
       setHasChanges(false)
@@ -513,8 +669,33 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
     setRecords((prev) => prev.map((record) => (record.id === id ? { ...record, isEditing: false } : record)))
   }
 
+  const handleDuplicate = (record: CombinedRecord) => {
+    const newId = `new-${Date.now()}`
+    
+    // Obtener el edificio por defecto (cd_edificio = 2)
+    const edificioPorDefecto = buildings.find((b: any) => b.codigo_edificio === 2)
+    const edificioPorDefectoNombre = edificioPorDefecto?.descripcion_edificio || "Hospital Principal"
+    
+    // Crear una copia del registro con nuevos valores
+    const duplicatedRecord: CombinedRecord = {
+      ...record,
+      id: newId,
+      agendaId: 0, // Nuevo registro
+      edificio: edificioPorDefectoNombre, // Usar edificio por defecto
+      piso: "", // Resetear piso para que se seleccione del edificio por defecto
+      isEditing: true, // Poner en modo edición
+    }
+    
+    console.log('Duplicando agenda:', record)
+    console.log('Nueva agenda creada:', duplicatedRecord)
+    
+    // Agregar al inicio de la lista
+    setRecords((prev) => [duplicatedRecord, ...prev])
+    setEditingId(newId)
+  }
+
   const handleFieldChange = (id: string, field: keyof CombinedRecord, value: string | number) => {
-    console.log(`Campo ${field} cambiado a:`, value, 'para registro:', id)
+    console.log(`Campo ${field} cambiado a:`, value, 'para registro:', id, 'tipo:', typeof value)
     
     setRecords((prev) =>
       prev.map((record) => {
@@ -523,6 +704,13 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           if (field === "edificio") {
             updated.piso = ""
           }
+          console.log(`Registro ${id} actualizado:`, {
+            campo: field,
+            valor_anterior: record[field],
+            valor_nuevo: value,
+            horaInicio_actual: updated.horaInicio,
+            horaFin_actual: updated.horaFin
+          })
           return updated
         }
         return record
@@ -558,6 +746,10 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
 
   const handleAddRecord = () => {
     const newId = `new-${Date.now()}`
+    // Obtener el edificio por defecto (cd_edificio = 2)
+    const edificioPorDefecto = buildings.find((b: any) => b.codigo_edificio === 2)
+    const edificioPorDefectoNombre = edificioPorDefecto?.descripcion_edificio || "Hospital Principal"
+    
     const newRecord: CombinedRecord = {
       id: newId,
       doctorId: 0,
@@ -566,11 +758,11 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
       especialidad: "",
       tipo: "Consulta",
       codigoItemAgendamiento: 0,
-      edificio: "Hospital Principal",
+      edificio: edificioPorDefectoNombre, // Usar edificio por defecto
       piso: "",
       dia: "Lunes",
-      horaInicio: "08:00",
-      horaFin: "12:00",
+      horaInicio: "",
+      horaFin: "",
       estado: "Activa",
       procedimiento: "",
       isEditing: true,
@@ -578,6 +770,40 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
     // Agregar al inicio de la lista
     setRecords((prev) => [newRecord, ...prev])
     setEditingId(newId)
+  }
+
+  const handleAddRecordFromDoctor = (doctor: any) => {
+    const newId = `new-${Date.now()}`
+    const firstSpecialty = doctor.especialidades && doctor.especialidades.length > 0 
+      ? doctor.especialidades[0] 
+      : null
+    
+    // Obtener el edificio por defecto (cd_edificio = 2)
+    const edificioPorDefecto = buildings.find((b: any) => b.codigo_edificio === 2)
+    const edificioPorDefectoNombre = edificioPorDefecto?.descripcion_edificio || "Hospital Principal"
+    
+    const newRecord: CombinedRecord = {
+      id: newId,
+      doctorId: doctor.id,
+      agendaId: 0,
+      nombre: doctor.nombres,
+      especialidad: firstSpecialty?.descripcion || "",
+      tipo: "Consulta",
+      codigoItemAgendamiento: firstSpecialty?.especialidadId || 0,
+      edificio: edificioPorDefectoNombre, // Usar edificio por defecto
+      piso: "",
+      dia: "Lunes",
+      horaInicio: "",
+      horaFin: "",
+      estado: "Activa",
+      procedimiento: "",
+      isEditing: true,
+    }
+    // Agregar al inicio de la lista
+    setRecords((prev) => [newRecord, ...prev])
+    setEditingId(newId)
+    setDoctorSearchOpen(false)
+    setDoctorSearchQuery("")
   }
 
   const handleToggleStatus = (id: string) => {
@@ -593,18 +819,44 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
   
   // Convertir datos a formato StaffItem para exportar con plantilla
   const convertToStaffData = (): StaffItem[] => {
-    return filteredRecords.map((record) => ({
-      especialidad: record.especialidad,
-      medico: record.nombre,
-      dia: record.dia,
-      edificio: record.edificio,
-      piso: record.piso,
-      consultorio: record.consultorioDescripcion || record.codigoConsultorio || "",
-      horaInicio: record.horaInicio,
-      horaFin: record.horaFin,
-      tipo: record.tipo
-    }))
+    // Obtener el edificio por defecto (cd_edificio = 2)
+    const edificioPorDefecto = buildings.find((b: any) => b.codigo_edificio === 2)
+    const edificioPorDefectoNombre = edificioPorDefecto?.descripcion_edificio || "Hospital Principal"
+    
+    // Obtener pisos disponibles para el edificio por defecto
+    const pisosPorDefecto = getAvailableFloors(edificioPorDefectoNombre)
+    const pisoPorDefecto = pisosPorDefecto.length > 0 ? pisosPorDefecto[0] : "Piso 1"
+    
+    return filteredRecords
+      .map((record) => ({
+        especialidad: record.especialidad,
+        medico: record.nombre,
+        dia: record.dia,
+        edificio: edificioPorDefectoNombre, // Usar edificio por defecto
+        piso: pisoPorDefecto, // Usar piso por defecto del edificio
+        consultorio: record.consultorioDescripcion || record.codigoConsultorio || "",
+        horaInicio: record.horaInicio,
+        horaFin: record.horaFin,
+        tipo: record.tipo
+      }))
+      .sort((a, b) => {
+        // Ordenar por especialidad primero, luego por médico
+        const especialidadCompare = a.especialidad.localeCompare(b.especialidad)
+        if (especialidadCompare !== 0) return especialidadCompare
+        return a.medico.localeCompare(b.medico)
+      })
   }
+
+  // Filtrar doctores para la búsqueda
+  const filteredDoctors = useMemo(() => {
+    if (!doctorSearchQuery) return doctors
+    return doctors.filter((doctor: any) => 
+      doctor.nombres?.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
+      (doctor.especialidades && doctor.especialidades.some((esp: any) => 
+        esp.descripcion?.toLowerCase().includes(doctorSearchQuery.toLowerCase())
+      ))
+    )
+  }, [doctors, doctorSearchQuery])
 
   const getAvailableFloors = (edificio: string): string[] => {
     if (!edificio || !consultorios.length) {
@@ -648,35 +900,45 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
     return []
   }
 
+  // Obtener pisos del edificio por defecto (cd_edificio = 2) para nuevas agendas
+  const getDefaultBuildingFloors = (): string[] => {
+    const edificioPorDefecto = buildings.find((b: any) => b.codigo_edificio === 2)
+    if (!edificioPorDefecto) {
+      console.warn('No se encontró el edificio por defecto (cd_edificio = 2)')
+      return []
+    }
+    
+    const consultoriosDelEdificio = consultorios.filter((c: any) => 
+      c.codigo_edificio === 2
+    )
+    
+    const pisosFromConsultorios = consultoriosDelEdificio
+      .map((c: any) => `Piso ${c.codigo_piso}`)
+      .filter((piso, index, arr) => arr.indexOf(piso) === index) // Quitar duplicados
+      .sort() // Ordenar pisos
+    
+    console.log('Pisos del edificio por defecto (cd_edificio = 2):', pisosFromConsultorios)
+    return pisosFromConsultorios
+  }
+
   return (
     <div className="min-h-screen bg-[#F9F4F6]">
       <header className="bg-white border-b border-[#E5E5E5] px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className="w-10 h-10 bg-[#7F0C43] rounded-full flex items-center justify-center">
-              <User className="w-5 h-5 text-white" />
-            </div>
+            <img 
+              src="/LOGO HVQ (1).svg" 
+              alt="Hospital Vozandes Quito" 
+              className="h-12 w-auto"
+            />
             <div>
-              <h1 className="text-xl font-bold text-[#333333]">Agendas Médicas</h1>
-              <p className="text-sm text-[#666666]">Hospital Vozandes Quito</p>
+              <h1 className="text-xl font-bold text-[#333333]">Staff de Médicos</h1>
             </div>
           </div>
-          <Button
-            onClick={onLogout}
-            variant="outline"
-            className="border-[#E5E5E5] text-[#333333] hover:bg-[#F9F4F6] bg-transparent"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Cerrar Sesión
-          </Button>
         </div>
       </header>
 
       <main className="p-6">
-        {/* Estado de conexión con el backend */}
-        <div className="mb-4">
-          <ConnectionStatus />
-        </div>
 
 
         {/* Mostrar error si existe */}
@@ -707,16 +969,69 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           </div>
         )}
 
-        <Card className="bg-white border-[#E5E5E5]">
+        <Card className="bg-white border-2 border-[#E5E5E5] shadow-lg">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-xl text-[#333333]">Gestión de Médicos y Agendas</CardTitle>
               <div className="flex gap-2">
                 
                 <BtnExportarStaff items={convertToStaffData()} />
+                
+                {/* Búsqueda rápida de doctores */}
+                <Popover open={doctorSearchOpen} onOpenChange={setDoctorSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button className="bg-[#C84D80] hover:bg-[#B8437A] text-white">
+                      <Search className="w-4 h-4 mr-2" />
+                      Buscar Doctor
+                </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-96 p-0">
+                    <Command>
+                      <CommandInput 
+                        placeholder="Buscar doctor por nombre o especialidad..." 
+                        value={doctorSearchQuery}
+                        onValueChange={setDoctorSearchQuery}
+                      />
+                      <CommandList>
+                        <CommandEmpty>No se encontraron doctores.</CommandEmpty>
+                        <CommandGroup heading="Doctores disponibles">
+                          {filteredDoctors
+                            .sort((a: any, b: any) => a.nombres.localeCompare(b.nombres))
+                            .slice(0, 10).map((doctor: any) => (
+                            <CommandItem
+                              key={doctor.id}
+                              value={doctor.nombres}
+                              onSelect={() => handleAddRecordFromDoctor(doctor)}
+                              className="cursor-pointer"
+                            >
+                              <div className="flex flex-col gap-1">
+                                <span className="font-medium">{doctor.nombres}</span>
+                                {doctor.especialidades && doctor.especialidades.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {doctor.especialidades.slice(0, 2).map((esp: any, idx: number) => (
+                                      <span key={idx} className="text-xs bg-gray-100 px-2 py-1 rounded">
+                                        {esp.descripcion}
+                                      </span>
+                                    ))}
+                                    {doctor.especialidades.length > 2 && (
+                                      <span className="text-xs text-gray-500">
+                                        +{doctor.especialidades.length - 2} más
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
                 <Button onClick={handleAddRecord} className="bg-[#7F0C43] hover:bg-[#6A0A38] text-white">
                   <Plus className="w-4 h-4 mr-2" />
-                  Agenda
+                  Agenda Manual
                 </Button>
                 {hasChanges && (
                   <Button 
@@ -749,6 +1064,11 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
               <div className="flex items-center gap-2 mb-4">
                 <Filter className="w-4 h-4 text-[#7F0C43]" />
                 <h3 className="font-semibold text-[#333333]">Filtros</h3>
+                {(filters.search || filters.especialidad || filters.edificio || filters.tipo) && (
+                  <span className="bg-[#7F0C43] text-white px-2 py-1 rounded-full text-xs font-medium">
+                    Filtros activos
+                  </span>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
@@ -757,7 +1077,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                   <div className="relative">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-[#666666]" />
                     <Input
-                      placeholder="Buscar médico..."
+                      placeholder="Buscar médico, especialidad, edificio, día..."
                       value={filters.search}
                       onChange={(e) => handleFilterChange("search", e.target.value)}
                       className="pl-10 border-[#E5E5E5] focus:border-[#7F0C43]"
@@ -776,11 +1096,15 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todas">Todas las especialidades</SelectItem>
-                      {Array.isArray(specialties) && specialties.map((esp: Especialidad, index) => (
-                        <SelectItem key={`filter-specialty-${esp.especialidadId}-${index}`} value={esp.descripcion}>
-                          {esp.descripcion}
+                      {Array.isArray(specialties) && 
+                        [...specialties]
+                          .sort((a, b) => a.descripcion.localeCompare(b.descripcion))
+                          .map((esp: Especialidad, index) => (
+                            <SelectItem key={`filter-specialty-${esp.especialidadId}-${index}`} value={esp.descripcion}>
+                              {esp.descripcion}
                         </SelectItem>
-                      ))}
+                          ))
+                      }
                     </SelectContent>
                   </Select>
                 </div>
@@ -817,6 +1141,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
               </div>
 
               <div className="flex items-center justify-between">
+                <div className="flex gap-2">
                 <Button
                   variant="outline"
                   onClick={clearFilters}
@@ -824,8 +1149,28 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                 >
                   Limpiar Filtros
                 </Button>
+                  {filters.search && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleFilterChange("search", "")}
+                      className="border-[#E5E5E5] text-[#333333] hover:bg-white bg-transparent"
+                    >
+                      <Search className="w-4 h-4 mr-1" />
+                      Limpiar Búsqueda
+                    </Button>
+                  )}
+                </div>
                 <div className="text-sm text-[#666666]">
+                  {filteredRecords.length !== records.length ? (
+                    <span>
                   Mostrando {paginatedRecords.length} de {filteredRecords.length} registros
+                      <span className="text-[#7F0C43] font-medium ml-1">
+                        (filtrados de {records.length} total)
+                      </span>
+                    </span>
+                  ) : (
+                    <span>Mostrando {paginatedRecords.length} de {filteredRecords.length} registros</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -833,37 +1178,32 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
             {/* Información de atajos de teclado */}
             {paginatedRecords.some(r => r.isEditing) && (
               <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 text-blue-700">
-                  <AlertCircle className="w-4 h-4" />
-                  <span className="text-sm font-medium">Atajos de teclado:</span>
-                  <span className="text-sm">Ctrl+Enter para guardar cambios rápidamente</span>
-                </div>
               </div>
             )}
 
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto border-2 border-[#E5E5E5] rounded-lg">
+              <Table className="border-collapse">
                 <TableHeader>
-                  <TableRow className="border-[#E5E5E5]">
-                    <TableHead className="text-[#333333] font-semibold">Especialidad</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Nombre del Médico</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Día</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Edificio</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Piso</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Consultorio</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Hora Inicio</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Hora Fin</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Tipo de Agenda</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Item Agendamiento</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Estado</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Acciones</TableHead>
+                  <TableRow className="border-b-2 border-[#E5E5E5] bg-[#F8F9FA]">
+                    <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Especialidad</TableHead>
+                    <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Nombre del Médico</TableHead>
+                    <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Día</TableHead>
+                                         {/* <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Edificio</TableHead> */}
+                     <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Piso</TableHead>
+                     <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Consultorio</TableHead>
+                     <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Hora Inicio</TableHead>
+                     <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Hora Fin</TableHead>
+                     <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Tipo de Agenda</TableHead>
+                     {/* <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Item Agendamiento</TableHead> */}
+                     {/* <TableHead className="text-[#333333] font-semibold border-r border-[#E5E5E5] p-4">Estado</TableHead> */}
+                     <TableHead className="text-[#333333] font-semibold p-4 min-w-[240px]">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedRecords.map((record) => (
                     <TableRow 
                       key={record.id} 
-                      className={`border-[#E5E5E5] ${
+                      className={`border-b border-[#E5E5E5] hover:bg-gray-50 ${
                         record.agendaId === 0 
                           ? 'bg-blue-50 border-blue-200' 
                           : record.isEditing 
@@ -872,7 +1212,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                       }`}
                     >
                       {/* 1. Especialidad */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Popover open={openPopovers[`especialidad-${record.id}`]} onOpenChange={(open) => {
                             if (open) {
@@ -898,17 +1238,20 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                                 <CommandList>
                                   <CommandEmpty>No se encontró especialidad.</CommandEmpty>
                                   <CommandGroup>
-                                    {Array.isArray(specialties) && specialties.map((esp: Especialidad, index) => (
-                                      <CommandItem
-                                        key={`specialty-edit-${esp.especialidadId}-${index}`}
-                                        value={esp.descripcion}
-                                        onSelect={(value) => {
-                                          handleFieldChange(record.id, "especialidad", value)
-                                          // Resetear médico seleccionado cuando cambie la especialidad
-                                          handleFieldChange(record.id, "nombre", "")
-                                          handleFieldChange(record.id, "doctorId", 0)
-                                          // Reiniciar item por defecto al cambiar especialidad
-                                          handleFieldChange(record.id, "codigoItemAgendamiento", 0)
+                                    {Array.isArray(specialties) && 
+                                      [...specialties]
+                                        .sort((a, b) => a.descripcion.localeCompare(b.descripcion))
+                                        .map((esp: Especialidad, index) => (
+                                        <CommandItem
+                                          key={`specialty-edit-${esp.especialidadId}-${index}`}
+                                          value={esp.descripcion}
+                                          onSelect={(value) => {
+                                            handleFieldChange(record.id, "especialidad", value)
+                                            // Resetear médico seleccionado cuando cambie la especialidad
+                                            handleFieldChange(record.id, "nombre", "")
+                                            handleFieldChange(record.id, "doctorId", 0)
+                                            // Reiniciar item por defecto al cambiar especialidad
+                                            handleFieldChange(record.id, "codigoItemAgendamiento", 0)
                                           closePopover(`especialidad-${record.id}`)
                                         }}
                                       >
@@ -930,7 +1273,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         )}
                       </TableCell>
                       {/* 2. Nombre del Médico */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Popover open={openPopovers[`medico-${record.id}`]} onOpenChange={(open) => {
                             if (open) {
@@ -999,7 +1342,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         )}
                       </TableCell>
                       {/* 3. Día */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Select
                             value={record.dia}
@@ -1023,8 +1366,8 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         )}
                       </TableCell>
 
-                      {/* 4. Edificio */}
-                      <TableCell>
+                      {/* 4. Edificio - OCULTO TEMPORALMENTE */}
+                      {/* <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Popover open={openPopovers[`edificio-${record.id}`]} onOpenChange={(open) => {
                             if (open) {
@@ -1075,27 +1418,29 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         ) : (
                           <span className="text-[#333333]">{record.edificio}</span>
                         )}
-                      </TableCell>
+                      </TableCell> */}
 
                       {/* 5. Piso */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Select
                             value={record.piso}
                             onValueChange={(value) => handleFieldChange(record.id, "piso", value)}
-                            disabled={!record.edificio || getAvailableFloors(record.edificio).length === 0}
+                            disabled={record.agendaId !== 0 && (!record.edificio || getAvailableFloors(record.edificio).length === 0)}
                           >
                             <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
                               <SelectValue placeholder={
-                                !record.edificio 
-                                  ? "Seleccione edificio primero" 
-                                  : getAvailableFloors(record.edificio).length === 0
-                                    ? "No hay pisos disponibles"
-                                    : "Seleccionar piso"
+                                record.agendaId === 0 
+                                  ? "Seleccionar piso" 
+                                  : !record.edificio 
+                                    ? "Seleccione edificio primero" 
+                                    : getAvailableFloors(record.edificio).length === 0
+                                      ? "No hay pisos disponibles"
+                                      : "Seleccionar piso"
                               } />
                             </SelectTrigger>
                             <SelectContent>
-                              {getAvailableFloors(record.edificio).map((piso, index) => (
+                              {(record.agendaId === 0 ? getDefaultBuildingFloors() : getAvailableFloors(record.edificio)).map((piso, index) => (
                                 <SelectItem key={`piso-${record.id}-${piso}-${index}`} value={piso}>
                                   {piso}
                                 </SelectItem>
@@ -1108,7 +1453,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                       </TableCell>
 
                       {/* 6. Consultorio */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Popover open={openPopovers[`consultorio-${record.id}`]} onOpenChange={(open) => {
                             if (open) {
@@ -1166,15 +1511,25 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                       </TableCell>
 
                       {/* 7. Hora Inicio */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Input
                             type="time"
                             value={record.horaInicio}
-                            onChange={(e) => handleFieldChange(record.id, "horaInicio", e.target.value)}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              console.log('=== INPUT HORA INICIO ===')
+                              console.log('Valor del input:', value)
+                              console.log('Tipo de valor:', typeof value)
+                              console.log('Longitud:', value.length)
+                              console.log('Registro actual:', record)
+                              console.log('=== FIN INPUT HORA INICIO ===')
+                              handleFieldChange(record.id, "horaInicio", value)
+                            }}
                             onKeyDown={(e) => handleKeyDown(e, record.id)}
                             className="border-[#E5E5E5] focus:border-[#7F0C43]"
                             title="Ctrl+Enter para guardar"
+                            required
                           />
                         ) : (
                           <span className="text-[#333333]">{record.horaInicio}</span>
@@ -1182,15 +1537,25 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                       </TableCell>
 
                       {/* 8. Hora Fin */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Input
                             type="time"
                             value={record.horaFin}
-                            onChange={(e) => handleFieldChange(record.id, "horaFin", e.target.value)}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              console.log('=== INPUT HORA FIN ===')
+                              console.log('Valor del input:', value)
+                              console.log('Tipo de valor:', typeof value)
+                              console.log('Longitud:', value.length)
+                              console.log('Registro actual:', record)
+                              console.log('=== FIN INPUT HORA FIN ===')
+                              handleFieldChange(record.id, "horaFin", value)
+                            }}
                             onKeyDown={(e) => handleKeyDown(e, record.id)}
                             className="border-[#E5E5E5] focus:border-[#7F0C43]"
                             title="Ctrl+Enter para guardar"
+                            required
                           />
                         ) : (
                           <span className="text-[#333333]">{record.horaFin}</span>
@@ -1198,7 +1563,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                       </TableCell>
 
                       {/* 9. Tipo de Agenda */}
-                      <TableCell>
+                      <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Select
                             value={record.tipo}
@@ -1222,8 +1587,8 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         )}
                       </TableCell>
 
-                      {/* 10. Item Agendamiento */}
-                      <TableCell>
+                      {/* 10. Item Agendamiento - OCULTO TEMPORALMENTE */}
+                      {/* <TableCell className="border-r border-[#E5E5E5] p-4">
                         {record.isEditing ? (
                           <Input
                             type="number"
@@ -1237,9 +1602,10 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         ) : (
                           <span className="text-[#333333]">{record.codigoItemAgendamiento || "-"}</span>
                         )}
-                      </TableCell>
+                      </TableCell> */}
 
-                      <TableCell>
+                      {/* Estado - OCULTO TEMPORALMENTE */}
+                      {/* <TableCell className="border-r border-[#E5E5E5] p-4">
                         <div className="flex items-center gap-2">
                           <Badge
                             variant={record.estado === "Activa" ? "default" : "secondary"}
@@ -1262,26 +1628,31 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                             />
                           )}
                         </div>
-                      </TableCell>
+                      </TableCell> */}
 
-                      <TableCell>
-                        <div className="flex gap-2">
+                      <TableCell className="p-4 min-w-[240px]">
+                        <div className="flex gap-3 justify-center">
                           {record.isEditing ? (
                             <>
                               <Button
                                 size="sm"
-                                onClick={() => handleSave(record.id)}
-                                className="bg-green-600 hover:bg-green-700 text-white"
-                                title="Guardar cambios (Ctrl+Enter)"
-                              >
-                                <Save className="w-3 h-3 mr-1" />
+                                  onClick={() => {
+                                    console.log('🔴 BOTÓN GUARDAR PRESIONADO - Record en el momento del click:', record)
+                                    console.log('🔴 Estado completo de records:', records)
+                                    console.log('🔴 Record específico del estado:', records.find(r => r.id === record.id))
+                                    handleSave(record.id)
+                                  }}
+                                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 font-medium shadow-sm"
+                                  title="Guardar cambios (Ctrl+Enter)"
+                                >
+                                <Save className="w-4 h-4 mr-2" />
                                 Guardar
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleCancel(record.id)}
-                                className="border-[#E5E5E5]"
+                                className="border-2 border-gray-300 hover:bg-gray-100 px-3 py-2 font-medium shadow-sm"
                                 title="Cancelar edición"
                               >
                                 Cancelar
@@ -1293,19 +1664,31 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleEdit(record.id)}
-                                className="border-[#E5E5E5] text-[#333333]"
+                                className="border-2 border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-2 font-medium shadow-sm"
                                 title="Editar agenda"
                               >
-                                <Edit3 className="w-3 h-3" />
+                                <Edit3 className="w-4 h-4 mr-1" />
+                                Editar
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDuplicate(record)}
+                                className="border-2 border-purple-300 text-purple-600 hover:bg-purple-50 px-3 py-2 font-medium shadow-sm"
+                                title="Duplicar agenda"
+                              >
+                                <Copy className="w-4 h-4 mr-1" />
+                                Duplicar
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleDelete(record.id)}
-                                className="border-red-200 text-red-600 hover:bg-red-50"
+                                className="border-2 border-red-300 text-red-600 hover:bg-red-50 px-3 py-2 font-medium shadow-sm"
                                 title="Eliminar agenda"
                               >
-                                <Trash2 className="w-3 h-3" />
+                                <Trash2 className="w-4 h-4 mr-1" />
+                                Eliminar
                               </Button>
                             </>
                           )}
@@ -1377,7 +1760,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                   ? "No se encontraron registros que coincidan con los filtros aplicados."
                   : agendas.length === 0 && doctors.length === 0
                     ? "Cargando datos del backend..."
-                    : "No hay registros disponibles. Haga clic en 'Agregar Médico/Agenda' para comenzar."}
+                  : "No hay registros disponibles. Haga clic en 'Agregar Médico/Agenda' para comenzar."}
               </div>
             )}
           </CardContent>

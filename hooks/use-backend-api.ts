@@ -218,12 +218,15 @@ export function useBackendAPI() {
         setError(result.message || 'Error al actualizar agenda')
         setLoading('error')
         console.error('Error al actualizar agenda:', result.message)
+        console.error('Respuesta completa del backend:', result)
         return null
       }
     } catch (err) {
       setError('Error al actualizar agenda')
       setLoading('error')
       console.error('Error al actualizar agenda:', err)
+      console.error('Tipo de error:', typeof err)
+      console.error('Detalles del error:', err)
       return null
     }
   }, [loadAgendas])

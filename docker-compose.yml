@@ -1,0 +1,185 @@
+version: '3.8'
+
+# ===========================================
+# DOCKER COMPOSE PARA DESPLIEGUE EN SERVIDOR
+# ===========================================
+
+services:
+  # ===========================================
+  # FRONTEND - APLICACIÓN NEXT.JS
+  # ===========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+    container_name: medical-dashboard-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://10.129.180.151:3001}
+    volumes:
+      - ./logs:/app/logs
+      - ./public:/app/public:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    profiles:
+      - development
+      - production
+
+  # ===========================================
+  # NGINX - REVERSE PROXY (SOLO PRODUCCIÓN)
+  # ===========================================
+  nginx:
+    image: nginx:alpine
+    container_name: medical-dashboard-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    profiles:
+      - production
+
+  # ===========================================
+  # REDIS - CACHE (OPCIONAL)
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: medical-dashboard-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    profiles:
+      - production
+
+  # ===========================================
+  # MONITORING - PROMETHEUS (OPCIONAL)
+  # ===========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: medical-dashboard-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - app-network
+    profiles:
+      - monitoring
+
+  # ===========================================
+  # GRAFANA - DASHBOARDS (OPCIONAL)
+  # ===========================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: medical-dashboard-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+    profiles:
+      - monitoring
+
+# ===========================================
+# VOLUMENES
+# ===========================================
+volumes:
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# ===========================================
+# REDES
+# ===========================================
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ===========================================
+# CONFIGURACIONES ADICIONALES
+# ===========================================
+configs:
+  nginx_config:
+    file: ./nginx.conf
+
+secrets:
+  ssl_cert:
+    file: ./ssl/cert.pem
+  ssl_key:
+    file: ./ssl/key.pem
