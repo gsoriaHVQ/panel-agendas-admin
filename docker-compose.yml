@@ -19,7 +19,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://10.129.180.151:3001}
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://10.129.180.151:3003}
     volumes:
       - ./logs:/app/logs
       - ./public:/app/public:ro
