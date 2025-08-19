@@ -6,14 +6,12 @@ import type { StaffItem } from "@/src/lib/excel/generateStaffWorkbook"
 import { generateStaffWorkbook } from "@/src/lib/excel/generateStaffWorkbook"
 import { downloadExcel } from "@/src/lib/excel/downloadExcel"
 
-export default function BtnExportarStaff() {
-  const handleClick = async () => {
-    const items: StaffItem[] = [
-      { especialidad: "ALERGOLOGÍA", medico: "Acosta Gabriela", dia: "Martes", consultorio: 228, hora: "17h00-18h30" },
-      { especialidad: "ALERGOLOGÍA", medico: "Molinet Ansberto", dia: "Lunes", consultorio: 228, hora: "17h00-19h00" },
-      { especialidad: "NEFROLOGÍA", medico: "Chediak Cristina", dia: "Lunes", consultorio: 227, hora: "16h00-19h00" },
-    ]
+interface BtnExportarStaffProps {
+  items: StaffItem[]
+}
 
+export default function BtnExportarStaff({ items }: BtnExportarStaffProps) {
+  const handleClick = async () => {
     const buffer = await generateStaffWorkbook(items, { rowsPerColumn: 40, sheetName: "STAFF 2025" })
     downloadExcel(buffer, "STAFF.xlsx")
   }

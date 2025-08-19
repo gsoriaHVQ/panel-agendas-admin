@@ -56,7 +56,7 @@ export interface Edificio {
   pisos?: string[]
 }
 
-export const mockDoctors: Doctor[] = [
+/* export const mockDoctors: Doctor[] = [
   {
     id: 1,
     nombres: "Dr. Juan Pérez",
@@ -138,7 +138,7 @@ export const mockEdificios: Edificio[] = [
     pisos: ["Piso 0", "Piso 1", "Piso 2", "Piso 3", "Piso 4", "Piso 5", "Piso 6", "Piso 7"],
   },
 ]
-
+*/
 export const especialidades = [
   "Cardiología",
   "Pediatría",

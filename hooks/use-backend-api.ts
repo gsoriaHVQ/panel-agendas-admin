@@ -323,16 +323,22 @@ export function useBackendAPI() {
           // preservar resto por si se usa en otro lado
           ...c,
         }))
+        console.log('Consultorios cargados del backend:', normalized.length, 'registros')
+        console.log('Estructura de consultorio ejemplo:', normalized[0])
         setConsultorios(normalized)
         setError(null)
         setLoading('success')
       } else {
-        setError(result.message || 'Error al cargar consultorios')
-        setLoading('error')
+        console.warn('Backend no retornó consultorios exitosamente, usando datos mock')
+        setConsultorios(mockConsultorios)
+        setError(null)
+        setLoading('success')
       }
     } catch (err) {
-      setError('Error al cargar consultorios')
-      setLoading('error')
+      console.warn('Error al cargar consultorios del backend, usando datos mock')
+      setConsultorios(mockConsultorios)
+      setError(null)
+      setLoading('success')
     }
   }, [])
 

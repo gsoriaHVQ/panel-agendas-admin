@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -24,14 +26,16 @@ import {
   Download,
   AlertCircle,
   RefreshCw,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react"
 import { useBackendAPI } from "@/hooks/use-backend-api"
 import { ConnectionStatus } from "@/components/connection-status"
 import { DebugInfo } from "@/components/debug-info"
 import { AgendaDebug } from "@/components/agenda-debug"
 import BtnExportarStaff from "@/src/components/BtnExportarStaff"
-import { StaffItem } from "@/utils/exportStaffFromTemplate"
-import { mockEdificios, Especialidad } from "@/lib/mock-data"
+import { StaffItem } from "@/src/lib/excel/generateStaffWorkbook"
+import { Especialidad } from "@/lib/mock-data"
 
 interface MedicalDashboardProps {
   onLogout: () => void
@@ -104,6 +108,18 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
   // Estado para el filtro de especialidad al crear agenda
   const [selectedSpecialtyForNew, setSelectedSpecialtyForNew] = useState<string>("")
   const [saveTimeouts, setSaveTimeouts] = useState<{[key: string]: NodeJS.Timeout}>({})
+  
+  // Estado para controlar los popovers de búsqueda
+  const [openPopovers, setOpenPopovers] = useState<{[key: string]: boolean}>({})
+
+  // Funciones helper para manejar los popovers
+  const togglePopover = (key: string) => {
+    setOpenPopovers(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const closePopover = (key: string) => {
+    setOpenPopovers(prev => ({ ...prev, [key]: false }))
+  }
 
   const [filters, setFilters] = useState<Filters>({
     especialidad: "",
@@ -181,10 +197,27 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
         const horaInicio = formatearHora(agenda.hora_inicio)
         const horaFin = formatearHora(agenda.hora_fin)
 
-        // Obtener primera especialidad del médico (no dependemos del item)
-        const especialidad = doctor?.especialidades && doctor.especialidades.length > 0 
-          ? doctor.especialidades[0].descripcion 
-          : 'Sin especialidad'
+        // Buscar la especialidad según el codigo_item_agendamiento de la agenda
+        let especialidad = 'Sin especialidad'
+        
+        if (agenda.codigo_item_agendamiento) {
+          // Buscar en el array de especialidades por especialidadId
+          const especialidadEncontrada = specialties.find((esp: Especialidad) => 
+            esp.especialidadId === agenda.codigo_item_agendamiento
+          )
+          if (especialidadEncontrada) {
+            especialidad = especialidadEncontrada.descripcion
+          } else {
+            // Si no se encuentra en specialties, buscar en las especialidades del médico
+            const especialidadDelMedico = doctor?.especialidades?.find((esp: any) => 
+              esp.especialidadId === agenda.codigo_item_agendamiento
+            )
+            especialidad = especialidadDelMedico?.descripcion || 'Sin especialidad'
+          }
+        } else if (doctor?.especialidades && doctor.especialidades.length > 0) {
+          // Fallback: usar primera especialidad del médico si no hay codigo_item_agendamiento
+          especialidad = doctor.especialidades[0].descripcion
+        }
 
         // Mapear edificio, piso y descripción de consultorio
         const consultorio = consultorios.find((c: any) => c.codigo_consultorio === agenda.codigo_consultorio)
@@ -193,14 +226,17 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
         const pisoNombre = consultorio ? `Piso ${consultorio.codigo_piso}` : "1"
         const consultorioDescripcion = consultorio?.descripcion_consultorio || consultorio?.DES_CONSULTORIO || ""
 
-        console.log('Mapeo consultorio y tipo:', {
+        console.log('Mapeo consultorio, especialidad y tipo:', {
           agenda_consultorio: agenda.codigo_consultorio,
           consultorio_encontrado: consultorio,
           edificio_data: edificioData,
           edificio_final: edificioNombre,
           piso_final: pisoNombre,
           tipo_backend: agenda.tipo,
-          tipo_decodificado: decodeTipo(agenda.tipo || "C")
+          tipo_decodificado: decodeTipo(agenda.tipo || "C"),
+          codigo_item_agendamiento: agenda.codigo_item_agendamiento,
+          especialidad_encontrada: especialidad,
+          specialties_total: specialties.length
         })
 
         return {
@@ -427,10 +463,19 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
           saveResult = null
         }
       } else {
-        // ACTUALIZACIONES - Temporalmente desactivado debido a error 500
-        console.log('Actualización de agenda desactivada temporalmente (error 500)')
-        console.log('Manteniendo cambios solo localmente')
-        saveResult = { success: true } // Simular éxito para UI
+        // ACTUALIZACIONES - Intentar actualizar en backend
+        console.log('Intentando actualizar agenda existente en backend...')
+        try {
+          console.log('Payload para updateAgenda:', payload)
+          saveResult = await updateAgenda(record.agendaId, payload)
+          
+          if (saveResult) {
+            console.log('Agenda actualizada exitosamente:', saveResult)
+          }
+        } catch (error) {
+          console.error('Error actualizando agenda:', error)
+          saveResult = null
+        }
       }
       
       // Si llegamos aquí, es porque no se pudo guardar o es una actualización local
@@ -485,6 +530,14 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
     )
     
     setHasChanges(true)
+  }
+
+  // Función para guardar con Enter
+  const handleKeyDown = (event: React.KeyboardEvent, recordId: string) => {
+    if (event.key === 'Enter' && event.ctrlKey) {
+      event.preventDefault()
+      handleSave(recordId)
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -544,31 +597,55 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
       especialidad: record.especialidad,
       medico: record.nombre,
       dia: record.dia,
-      consultorio: record.piso ? `${record.edificio} - ${record.piso}` : record.edificio,
-      hora: `${record.horaInicio}-${record.horaFin}`
+      edificio: record.edificio,
+      piso: record.piso,
+      consultorio: record.consultorioDescripcion || record.codigoConsultorio || "",
+      horaInicio: record.horaInicio,
+      horaFin: record.horaFin,
+      tipo: record.tipo
     }))
   }
 
   const getAvailableFloors = (edificio: string): string[] => {
+    if (!edificio || !consultorios.length) {
+      console.log('No hay edificio seleccionado o consultorios no cargados aún')
+      return []
+    }
+
     // Buscar por descripcion_edificio o por codigo_edificio
     const building = buildings.find((e: any) => 
       e.descripcion_edificio === edificio || 
       e.codigo_edificio.toString() === edificio
     )
+    
     console.log('Buscando pisos para edificio:', edificio, 'Encontrado:', building)
+    console.log('Total consultorios disponibles:', consultorios.length)
     
     // Generar lista de pisos basada en consultorios
     if (building) {
-      const pisosFromConsultorios = consultorios
-        .filter((c: any) => c.codigo_edificio === building.codigo_edificio)
+      const consultoriosDelEdificio = consultorios.filter((c: any) => 
+        c.codigo_edificio === building.codigo_edificio
+      )
+      
+      console.log('Consultorios del edificio', building.codigo_edificio, ':', consultoriosDelEdificio)
+      
+      const pisosFromConsultorios = consultoriosDelEdificio
         .map((c: any) => `Piso ${c.codigo_piso}`)
         .filter((piso, index, arr) => arr.indexOf(piso) === index) // Quitar duplicados
+        .sort() // Ordenar pisos
       
       console.log('Pisos obtenidos de consultorios:', pisosFromConsultorios)
-      return pisosFromConsultorios.length > 0 ? pisosFromConsultorios : ['Piso 1', 'Piso 2', 'Piso 3']
+      
+      if (pisosFromConsultorios.length > 0) {
+        return pisosFromConsultorios
+      } else {
+        console.warn('No se encontraron consultorios para el edificio', edificio)
+        return []
+      }
     }
     
-    return ['Piso 1', 'Piso 2', 'Piso 3'] // Fallback
+    console.warn('Edificio no encontrado:', edificio)
+    return []
   }
 
   return (
@@ -636,7 +713,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
               <CardTitle className="text-xl text-[#333333]">Gestión de Médicos y Agendas</CardTitle>
               <div className="flex gap-2">
                 
-                <BtnExportarStaff />
+                <BtnExportarStaff items={convertToStaffData()} />
                 <Button onClick={handleAddRecord} className="bg-[#7F0C43] hover:bg-[#6A0A38] text-white">
                   <Plus className="w-4 h-4 mr-2" />
                   Agenda
@@ -753,20 +830,31 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
               </div>
             </div>
 
+            {/* Información de atajos de teclado */}
+            {paginatedRecords.some(r => r.isEditing) && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-2 text-blue-700">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium">Atajos de teclado:</span>
+                  <span className="text-sm">Ctrl+Enter para guardar cambios rápidamente</span>
+                </div>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="border-[#E5E5E5]">
                     <TableHead className="text-[#333333] font-semibold">Especialidad</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Nombre del Médico</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Tipo de Agenda</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Item Agendamiento</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Día</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Edificio</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Piso</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Consultorio</TableHead>
-                    <TableHead className="text-[#333333] font-semibold">Día</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Hora Inicio</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Hora Fin</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Tipo de Agenda</TableHead>
+                    <TableHead className="text-[#333333] font-semibold">Item Agendamiento</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Estado</TableHead>
                     <TableHead className="text-[#333333] font-semibold">Acciones</TableHead>
                   </TableRow>
@@ -783,76 +871,333 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                             : ''
                       }`}
                     >
-                      {/* Primera columna: Especialidad */}
+                      {/* 1. Especialidad */}
                       <TableCell>
                         {record.isEditing ? (
-                          <Select
-                            value={record.especialidad}
-                            onValueChange={(value) => {
-                              handleFieldChange(record.id, "especialidad", value)
-                              // Resetear médico seleccionado cuando cambie la especialidad
-                              handleFieldChange(record.id, "nombre", "")
-                              handleFieldChange(record.id, "doctorId", 0)
-                              // Reiniciar item por defecto al cambiar especialidad
-                              handleFieldChange(record.id, "codigoItemAgendamiento", 0)
-                            }}
-                          >
-                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
-                              <SelectValue placeholder="Seleccionar especialidad" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Array.isArray(specialties) && specialties.map((esp: Especialidad, index) => (
-                                <SelectItem key={`specialty-edit-${esp.especialidadId}-${index}`} value={esp.descripcion}>
-                                  {esp.descripcion}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <Popover open={openPopovers[`especialidad-${record.id}`]} onOpenChange={(open) => {
+                            if (open) {
+                              togglePopover(`especialidad-${record.id}`)
+                            } else {
+                              closePopover(`especialidad-${record.id}`)
+                            }
+                          }}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={openPopovers[`especialidad-${record.id}`]}
+                                className="w-full justify-between border-[#E5E5E5] focus:border-[#7F0C43]"
+                              >
+                                {record.especialidad || "Seleccionar especialidad"}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-full p-0">
+                              <Command>
+                                <CommandInput placeholder="Buscar especialidad..." />
+                                <CommandList>
+                                  <CommandEmpty>No se encontró especialidad.</CommandEmpty>
+                                  <CommandGroup>
+                                    {Array.isArray(specialties) && specialties.map((esp: Especialidad, index) => (
+                                      <CommandItem
+                                        key={`specialty-edit-${esp.especialidadId}-${index}`}
+                                        value={esp.descripcion}
+                                        onSelect={(value) => {
+                                          handleFieldChange(record.id, "especialidad", value)
+                                          // Resetear médico seleccionado cuando cambie la especialidad
+                                          handleFieldChange(record.id, "nombre", "")
+                                          handleFieldChange(record.id, "doctorId", 0)
+                                          // Reiniciar item por defecto al cambiar especialidad
+                                          handleFieldChange(record.id, "codigoItemAgendamiento", 0)
+                                          closePopover(`especialidad-${record.id}`)
+                                        }}
+                                      >
+                                        <Check
+                                          className={`mr-2 h-4 w-4 ${
+                                            record.especialidad === esp.descripcion ? "opacity-100" : "opacity-0"
+                                          }`}
+                                        />
+                                        {esp.descripcion}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                         ) : (
                           <span className="text-[#333333]">{record.especialidad}</span>
                         )}
                       </TableCell>
-                      {/* Segunda columna: Nombre del Médico */}
+                      {/* 2. Nombre del Médico */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Popover open={openPopovers[`medico-${record.id}`]} onOpenChange={(open) => {
+                            if (open) {
+                              togglePopover(`medico-${record.id}`)
+                            } else {
+                              closePopover(`medico-${record.id}`)
+                            }
+                          }}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={openPopovers[`medico-${record.id}`]}
+                                className="w-full justify-between border-[#E5E5E5] focus:border-[#7F0C43]"
+                                disabled={!record.especialidad}
+                              >
+                                {record.nombre || (record.especialidad ? "Seleccionar médico" : "Primero seleccione especialidad")}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-full p-0">
+                              <Command>
+                                <CommandInput placeholder="Buscar médico..." />
+                                <CommandList>
+                                  <CommandEmpty>No se encontró médico.</CommandEmpty>
+                                  <CommandGroup>
+                                    {getDoctorsBySpecialty(record.especialidad).map((doctor: any, index: number) => (
+                                      <CommandItem
+                                        key={`doctor-${doctor.id}-${index}`}
+                                        value={doctor.nombres}
+                                        onSelect={(value) => {
+                                          const selectedDoctor = doctors.find((d: any) => d.nombres === value)
+                                          if (selectedDoctor) {
+                                            handleFieldChange(record.id, "nombre", selectedDoctor.nombres)
+                                            handleFieldChange(record.id, "doctorId", selectedDoctor.id)
+                                            // Establecer item por defecto del médico según especialidad seleccionada o primera
+                                            let defaultItem = 0
+                                            if (Array.isArray(selectedDoctor.especialidades) && selectedDoctor.especialidades.length > 0) {
+                                              if (record.especialidad) {
+                                                const match = selectedDoctor.especialidades.find((esp: any) => esp.descripcion === record.especialidad)
+                                                defaultItem = match?.especialidadId || selectedDoctor.especialidades[0]?.especialidadId || 0
+                                              } else {
+                                                defaultItem = selectedDoctor.especialidades[0]?.especialidadId || 0
+                                              }
+                                            }
+                                            handleFieldChange(record.id, "codigoItemAgendamiento", defaultItem)
+                                            closePopover(`medico-${record.id}`)
+                                          }
+                                        }}
+                                      >
+                                        <Check
+                                          className={`mr-2 h-4 w-4 ${
+                                            record.nombre === doctor.nombres ? "opacity-100" : "opacity-0"
+                                          }`}
+                                        />
+                                        {doctor.nombres}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <span className="text-[#333333]">{record.nombre}</span>
+                        )}
+                      </TableCell>
+                      {/* 3. Día */}
                       <TableCell>
                         {record.isEditing ? (
                           <Select
-                            value={record.doctorId.toString()}
-                            onValueChange={(value) => {
-                              const selectedDoctor = doctors.find((d: any) => d.id.toString() === value)
-                              if (selectedDoctor) {
-                                handleFieldChange(record.id, "nombre", selectedDoctor.nombres)
-                                handleFieldChange(record.id, "doctorId", selectedDoctor.id)
-                                // Establecer item por defecto del médico según especialidad seleccionada o primera
-                                let defaultItem = 0
-                                if (Array.isArray(selectedDoctor.especialidades) && selectedDoctor.especialidades.length > 0) {
-                                  if (record.especialidad) {
-                                    const match = selectedDoctor.especialidades.find((esp: any) => esp.descripcion === record.especialidad)
-                                    defaultItem = match?.especialidadId || selectedDoctor.especialidades[0]?.especialidadId || 0
-                                  } else {
-                                    defaultItem = selectedDoctor.especialidades[0]?.especialidadId || 0
-                                  }
-                                }
-                                handleFieldChange(record.id, "codigoItemAgendamiento", defaultItem)
-                              }
-                            }}
-                            disabled={!record.especialidad}
+                            value={record.dia}
+                            onValueChange={(value) => handleFieldChange(record.id, "dia", value)}
                           >
                             <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
-                              <SelectValue placeholder={record.especialidad ? "Seleccionar médico" : "Primero seleccione especialidad"} />
+                              <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {getDoctorsBySpecialty(record.especialidad).map((doctor: any, index: number) => (
-                                <SelectItem key={`doctor-${doctor.id}-${index}`} value={doctor.id.toString()}>
-                                  {doctor.nombres}
+                              <SelectItem value="Lunes">Lunes</SelectItem>
+                              <SelectItem value="Martes">Martes</SelectItem>
+                              <SelectItem value="Miércoles">Miércoles</SelectItem>
+                              <SelectItem value="Jueves">Jueves</SelectItem>
+                              <SelectItem value="Viernes">Viernes</SelectItem>
+                              <SelectItem value="Sábado">Sábado</SelectItem>
+                              <SelectItem value="Domingo">Domingo</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-[#333333]">{record.dia}</span>
+                        )}
+                      </TableCell>
+
+                      {/* 4. Edificio */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Popover open={openPopovers[`edificio-${record.id}`]} onOpenChange={(open) => {
+                            if (open) {
+                              togglePopover(`edificio-${record.id}`)
+                            } else {
+                              closePopover(`edificio-${record.id}`)
+                            }
+                          }}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={openPopovers[`edificio-${record.id}`]}
+                                className="w-full justify-between border-[#E5E5E5] focus:border-[#7F0C43]"
+                              >
+                                {record.edificio || "Seleccionar edificio"}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-full p-0">
+                              <Command>
+                                <CommandInput placeholder="Buscar edificio..." />
+                                <CommandList>
+                                  <CommandEmpty>No se encontró edificio.</CommandEmpty>
+                                  <CommandGroup>
+                                    {Array.isArray(buildings) && buildings.map((edificio: any, index) => (
+                                      <CommandItem
+                                        key={`edificio-${edificio.codigo_edificio}-${index}`}
+                                        value={edificio.descripcion_edificio}
+                                        onSelect={(value) => {
+                                          handleFieldChange(record.id, "edificio", value)
+                                          closePopover(`edificio-${record.id}`)
+                                        }}
+                                      >
+                                        <Check
+                                          className={`mr-2 h-4 w-4 ${
+                                            record.edificio === edificio.descripcion_edificio ? "opacity-100" : "opacity-0"
+                                          }`}
+                                        />
+                                        {edificio.descripcion_edificio}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <span className="text-[#333333]">{record.edificio}</span>
+                        )}
+                      </TableCell>
+
+                      {/* 5. Piso */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Select
+                            value={record.piso}
+                            onValueChange={(value) => handleFieldChange(record.id, "piso", value)}
+                            disabled={!record.edificio || getAvailableFloors(record.edificio).length === 0}
+                          >
+                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
+                              <SelectValue placeholder={
+                                !record.edificio 
+                                  ? "Seleccione edificio primero" 
+                                  : getAvailableFloors(record.edificio).length === 0
+                                    ? "No hay pisos disponibles"
+                                    : "Seleccionar piso"
+                              } />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getAvailableFloors(record.edificio).map((piso, index) => (
+                                <SelectItem key={`piso-${record.id}-${piso}-${index}`} value={piso}>
+                                  {piso}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                         ) : (
-                          <span className="text-[#333333]">{record.nombre}</span>
+                          <span className="text-[#333333]">{record.piso}</span>
                         )}
                       </TableCell>
-                      {/* Tercera columna: Tipo de Agenda */}
+
+                      {/* 6. Consultorio */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Popover open={openPopovers[`consultorio-${record.id}`]} onOpenChange={(open) => {
+                            if (open) {
+                              togglePopover(`consultorio-${record.id}`)
+                            } else {
+                              closePopover(`consultorio-${record.id}`)
+                            }
+                          }}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={openPopovers[`consultorio-${record.id}`]}
+                                className="w-full justify-between border-[#E5E5E5] focus:border-[#7F0C43]"
+                              >
+                                {record.consultorioDescripcion || record.codigoConsultorio || "Seleccionar consultorio"}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-full p-0">
+                              <Command>
+                                <CommandInput placeholder="Buscar consultorio..." />
+                                <CommandList>
+                                  <CommandEmpty>No se encontró consultorio.</CommandEmpty>
+                                  <CommandGroup>
+                                    {Array.isArray(consultorios) && consultorios.map((consultorio: any, index) => (
+                                      <CommandItem
+                                        key={`consultorio-${consultorio.codigo_consultorio}-${index}`}
+                                        value={`${consultorio.descripcion_consultorio || consultorio.codigo_consultorio}`}
+                                        onSelect={(value) => {
+                                          handleFieldChange(record.id, "codigoConsultorio", consultorio.codigo_consultorio)
+                                          handleFieldChange(record.id, "consultorioDescripcion", consultorio.descripcion_consultorio || "")
+                                          closePopover(`consultorio-${record.id}`)
+                                        }}
+                                      >
+                                        <Check
+                                          className={`mr-2 h-4 w-4 ${
+                                            record.codigoConsultorio === consultorio.codigo_consultorio ? "opacity-100" : "opacity-0"
+                                          }`}
+                                        />
+                                        {consultorio.descripcion_consultorio || consultorio.codigo_consultorio} 
+                                        <span className="text-gray-500 ml-2">
+                                          (Edificio: {consultorio.codigo_edificio}, Piso: {consultorio.codigo_piso})
+                                        </span>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <span className="text-[#333333]">{record.consultorioDescripcion || record.codigoConsultorio || '-'}</span>
+                        )}
+                      </TableCell>
+
+                      {/* 7. Hora Inicio */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Input
+                            type="time"
+                            value={record.horaInicio}
+                            onChange={(e) => handleFieldChange(record.id, "horaInicio", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, record.id)}
+                            className="border-[#E5E5E5] focus:border-[#7F0C43]"
+                            title="Ctrl+Enter para guardar"
+                          />
+                        ) : (
+                          <span className="text-[#333333]">{record.horaInicio}</span>
+                        )}
+                      </TableCell>
+
+                      {/* 8. Hora Fin */}
+                      <TableCell>
+                        {record.isEditing ? (
+                          <Input
+                            type="time"
+                            value={record.horaFin}
+                            onChange={(e) => handleFieldChange(record.id, "horaFin", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, record.id)}
+                            className="border-[#E5E5E5] focus:border-[#7F0C43]"
+                            title="Ctrl+Enter para guardar"
+                          />
+                        ) : (
+                          <span className="text-[#333333]">{record.horaFin}</span>
+                        )}
+                      </TableCell>
+
+                      {/* 9. Tipo de Agenda */}
                       <TableCell>
                         {record.isEditing ? (
                           <Select
@@ -877,112 +1222,20 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                         )}
                       </TableCell>
 
-                      {/* Cuarta columna: Item de Agendamiento */}
+                      {/* 10. Item Agendamiento */}
                       <TableCell>
                         {record.isEditing ? (
                           <Input
                             type="number"
                             value={record.codigoItemAgendamiento?.toString() || ""}
                             onChange={(e) => handleFieldChange(record.id, "codigoItemAgendamiento", Number(e.target.value))}
+                            onKeyDown={(e) => handleKeyDown(e, record.id)}
                             placeholder="Código de item"
                             className="border-[#E5E5E5] focus:border-[#7F0C43]"
+                            title="Ctrl+Enter para guardar"
                           />
                         ) : (
                           <span className="text-[#333333]">{record.codigoItemAgendamiento || "-"}</span>
-                        )}
-                      </TableCell>
-
-                      <TableCell>
-                        {record.isEditing ? (
-                          <Select
-                            value={record.edificio}
-                            onValueChange={(value) => handleFieldChange(record.id, "edificio", value)}
-                          >
-                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Array.isArray(buildings) && buildings.map((edificio: any, index) => (
-                                <SelectItem key={`edificio-${edificio.codigo_edificio}-${index}`} value={edificio.descripcion_edificio}>
-                                  {edificio.descripcion_edificio}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span className="text-[#333333]">{record.edificio}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {record.isEditing ? (
-                          <Select
-                            value={record.piso}
-                            onValueChange={(value) => handleFieldChange(record.id, "piso", value)}
-                            disabled={!record.edificio}
-                          >
-                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
-                              <SelectValue placeholder="Seleccionar piso" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getAvailableFloors(record.edificio).map((piso, index) => (
-                                <SelectItem key={`piso-${record.id}-${piso}-${index}`} value={piso}>
-                                  {piso}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span className="text-[#333333]">{record.piso}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-[#333333]">{record.consultorioDescripcion || record.codigoConsultorio || '-'}</span>
-                      </TableCell>
-                      <TableCell>
-                        {record.isEditing ? (
-                          <Select
-                            value={record.dia}
-                            onValueChange={(value) => handleFieldChange(record.id, "dia", value)}
-                          >
-                            <SelectTrigger className="border-[#E5E5E5] focus:border-[#7F0C43]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Lunes">Lunes</SelectItem>
-                              <SelectItem value="Martes">Martes</SelectItem>
-                              <SelectItem value="Miércoles">Miércoles</SelectItem>
-                              <SelectItem value="Jueves">Jueves</SelectItem>
-                              <SelectItem value="Viernes">Viernes</SelectItem>
-                              <SelectItem value="Sábado">Sábado</SelectItem>
-                              <SelectItem value="Domingo">Domingo</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span className="text-[#333333]">{record.dia}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {record.isEditing ? (
-                          <Input
-                            type="time"
-                            value={record.horaInicio}
-                            onChange={(e) => handleFieldChange(record.id, "horaInicio", e.target.value)}
-                            className="border-[#E5E5E5] focus:border-[#7F0C43]"
-                          />
-                        ) : (
-                          <span className="text-[#333333]">{record.horaInicio}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {record.isEditing ? (
-                          <Input
-                            type="time"
-                            value={record.horaFin}
-                            onChange={(e) => handleFieldChange(record.id, "horaFin", e.target.value)}
-                            className="border-[#E5E5E5] focus:border-[#7F0C43]"
-                          />
-                        ) : (
-                          <span className="text-[#333333]">{record.horaFin}</span>
                         )}
                       </TableCell>
 
@@ -1019,14 +1272,17 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                                 size="sm"
                                 onClick={() => handleSave(record.id)}
                                 className="bg-green-600 hover:bg-green-700 text-white"
+                                title="Guardar cambios (Ctrl+Enter)"
                               >
-                                <Save className="w-3 h-3" />
+                                <Save className="w-3 h-3 mr-1" />
+                                Guardar
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleCancel(record.id)}
                                 className="border-[#E5E5E5]"
+                                title="Cancelar edición"
                               >
                                 Cancelar
                               </Button>
@@ -1038,6 +1294,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                                 variant="outline"
                                 onClick={() => handleEdit(record.id)}
                                 className="border-[#E5E5E5] text-[#333333]"
+                                title="Editar agenda"
                               >
                                 <Edit3 className="w-3 h-3" />
                               </Button>
@@ -1046,6 +1303,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
                                 variant="outline"
                                 onClick={() => handleDelete(record.id)}
                                 className="border-red-200 text-red-600 hover:bg-red-50"
+                                title="Eliminar agenda"
                               >
                                 <Trash2 className="w-3 h-3" />
                               </Button>
