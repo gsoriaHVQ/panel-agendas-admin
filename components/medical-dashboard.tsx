@@ -188,63 +188,53 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
         const diasSemana = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
         const dia = diasSemana[agenda.codigo_dia] || 'Sin día'
 
-        // Formatear horas desde diferentes formatos de BD
+        // Formatear horas desde diferentes formatos de BD SIN usar Date/TZ (tratamiento "naive")
         const formatearHora = (horaString: string) => {
           console.log('formatearHora - entrada:', horaString, 'tipo:', typeof horaString)
-          
+
           if (!horaString) {
             console.warn('Hora vacía en formatearHora')
             return ''
           }
-          
-          try {
-            // Si ya viene en formato HH:MM, devolverlo tal como está
-            if (horaString.match(/^\d{1,2}:\d{2}$/)) {
-              const [horas, minutos] = horaString.split(':')
-              const resultado = `${String(horas).padStart(2, '0')}:${minutos}`
-              console.log('Ya es formato HH:MM, devolviendo:', resultado)
-              return resultado
-            }
-            
-            // Si viene en formato de fecha completa (YYYY-MM-DD HH:MM:SS o YYYY-MM-DD HH:MM)
-            if (horaString.includes('-') && horaString.includes(' ')) {
-              // Parsear manualmente para evitar problemas de timezone
-              const partes = horaString.split(' ')
-              if (partes.length === 2) {
-                const horaParte = partes[1]
-                // Extraer solo HH:MM si viene con segundos
-                if (horaParte.match(/^\d{1,2}:\d{2}:\d{2}/)) {
-                  const resultado = horaParte.substring(0, 5)
-                  console.log('Extrayendo HH:MM de fecha con segundos:', `${horaString} -> ${resultado}`)
-                  return resultado
-                }
-                // Si ya viene como HH:MM
-                if (horaParte.match(/^\d{1,2}:\d{2}$/)) {
-                  const resultado = horaParte
-                  console.log('Extrayendo hora de fecha completa:', `${horaString} -> ${resultado}`)
-                  return resultado
-                }
-              }
-            }
-            
-            // Si viene como ISO string (con T)
-            if (horaString.includes('T')) {
-              const fecha = new Date(horaString)
-              if (!isNaN(fecha.getTime())) {
-                const horas = fecha.getHours().toString().padStart(2, '0')
-                const minutos = fecha.getMinutes().toString().padStart(2, '0')
-                const resultado = `${horas}:${minutos}`
-                console.log('Convirtiendo ISO string a HH:MM:', `${horaString} -> ${resultado}`)
-                return resultado
-              }
-            }
-            
-            console.warn('Formato de hora no reconocido:', horaString)
-            return ''
-          } catch (e) {
-            console.warn('Error formateando hora:', horaString, e)
-            return ''
+
+          const raw = String(horaString).trim()
+
+          // 1) HH:MM directo
+          if (/^\d{1,2}:\d{2}$/.test(raw)) {
+            const [h, m] = raw.split(':')
+            const resultado = `${String(h).padStart(2, '0')}:${m}`
+            console.log('Ya es formato HH:MM, devolviendo:', resultado)
+            return resultado
           }
+
+          // 2) YYYY-MM-DD[ T]HH:MM[:SS]
+          const fechaHora = raw.match(/^\d{4}-\d{2}-\d{2}[ T](\d{1,2}):(\d{2})(?::\d{2})?$/)
+          if (fechaHora) {
+            const h = fechaHora[1]
+            const m = fechaHora[2]
+            const resultado = `${String(h).padStart(2, '0')}:${m}`
+            console.log('Extrayendo HH:MM de fecha completa:', `${raw} -> ${resultado}`)
+            return resultado
+          }
+
+          // 3) ISO con T (ignorando TZ), extraer solo HH:MM
+          const isoMatch = raw.match(/T(\d{2}):(\d{2})/)
+          if (isoMatch) {
+            const resultado = `${isoMatch[1]}:${isoMatch[2]}`
+            console.log('Extrayendo HH:MM de ISO:', `${raw} -> ${resultado}`)
+            return resultado
+          }
+
+          // 4) Cualquier otra cadena que contenga HH:MM
+          const anyMatch = raw.match(/(\d{1,2}):(\d{2})/)
+          if (anyMatch) {
+            const resultado = `${String(anyMatch[1]).padStart(2, '0')}:${anyMatch[2]}`
+            console.log('Extrayendo HH:MM de cadena genérica:', `${raw} -> ${resultado}`)
+            return resultado
+          }
+
+          console.warn('Formato de hora no reconocido:', horaString)
+          return ''
         }
 
         console.log('Formato de hora desde BD:', {
