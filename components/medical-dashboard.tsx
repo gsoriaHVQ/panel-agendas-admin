@@ -917,7 +917,7 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <img 
-              src="/LOGO HVQ (1).svg" 
+              src="http://horizon-html:35480/public/img_directorio/logo.svg" 
               alt="Hospital Vozandes Quito" 
               className="h-12 w-auto"
             />
