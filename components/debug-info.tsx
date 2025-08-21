@@ -63,7 +63,7 @@ export function DebugInfo() {
             </div>
             {Array.isArray(specialties) && specialties.length > 0 && (
               <div className="text-gray-500 mt-1">
-                Primer elemento: {specialties[0]}
+                Primer elemento: {JSON.stringify(specialties[0]).substring(0, 100)}...
               </div>
             )}
           </div>

@@ -2,9 +2,9 @@
 
 import { Button } from "@/components/ui/button"
 import { FileSpreadsheet } from "lucide-react"
-import type { StaffItem } from "@/src/lib/excel/generateStaffWorkbook"
-import { generateStaffWorkbook } from "@/src/lib/excel/generateStaffWorkbook"
-import { downloadExcel } from "@/src/lib/excel/downloadExcel"
+import type { StaffItem } from "@/lib/excel/generateStaffWorkbook"
+import { generateStaffWorkbook } from "@/lib/excel/generateStaffWorkbook"
+import { downloadExcel } from "@/lib/excel/downloadExcel"
 
 interface BtnExportarStaffProps {
   items: StaffItem[]

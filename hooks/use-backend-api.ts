@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { apiService } from "@/lib/api-service"
 import type { Doctor, Agenda, Edificio, Especialidad } from "@/lib/mock-data"
-import { mockDoctors, mockAgendas, mockEdificios, especialidades } from "@/lib/mock-data"
 
 // Estados de carga
 export type LoadingState = 'idle' | 'loading' | 'success' | 'error'
@@ -47,6 +46,15 @@ export function useBackendAPI() {
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [specialties, setSpecialties] = useState<Especialidad[]>([])
 
+  // Algunos endpoints del backend devuelven { data: [...] } y otros devuelven directamente [...]
+  // Esta utilidad unifica ambas respuestas de forma segura.
+  const unwrap = useCallback((payload: any) => {
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      return (payload as any).data
+    }
+    return payload
+  }, [])
+
   const loadDoctors = useCallback(async () => {
     setLoading('loading')
     console.log('Cargando medicos desde el backend...')
@@ -55,7 +63,7 @@ export function useBackendAPI() {
       if (result.success) {
         // El backend devuelve {success: true, data: [...], total: X}
         console.log('Estructura completa de result.data para medicos:', result.data)
-        const rawData = result.data?.data || result.data
+        const rawData = unwrap(result.data)
         const doctorsData = Array.isArray(rawData) ? rawData : []
         setDoctors(doctorsData)
         setError(null)
@@ -64,18 +72,14 @@ export function useBackendAPI() {
         console.log('Primeros 3 medicos:', doctorsData.slice(0, 3))
         console.log('Estructura del primer medico:', doctorsData[0])
       } else {
-        // Fallback a datos mock si el backend falla
-        console.warn('Usando datos mock para medicos')
-        setDoctors(mockDoctors)
-        setError(null)
-        setLoading('success')
+        setError(result.message || 'No se pudieron cargar médicos')
+        setDoctors([])
+        setLoading('error')
       }
     } catch (err) {
-      // Fallback a datos mock si hay error de conexión
-      console.warn('Error de conexion, usando datos mock para medicos')
-      setDoctors(mockDoctors)
-      setError(null)
-      setLoading('success')
+      setError('Error de conexión al cargar médicos')
+      setDoctors([])
+      setLoading('error')
     }
   }, [])
 
@@ -87,7 +91,7 @@ export function useBackendAPI() {
       if (result.success) {
         // El backend devuelve {success: true, data: [...], total: X}
         console.log('Estructura completa de result.data para especialidades:', result.data)
-        const rawData = result.data?.data || result.data
+        const rawData = unwrap(result.data)
         const dataArray = Array.isArray(rawData) ? rawData : []
         // Guardar objetos completos de especialidades con especialidadId y descripcion
         const specialtiesData = dataArray.filter((esp: any) => esp.especialidadId && esp.descripcion)
@@ -98,18 +102,14 @@ export function useBackendAPI() {
         console.log('Primeras 3 especialidades:', specialtiesData.slice(0, 3))
         console.log('Estructura de especialidad:', specialtiesData[0])
       } else {
-        // Fallback a datos mock si el backend falla
-        console.warn('Usando datos mock para especialidades')
-        setSpecialties(especialidades)
-        setError(null)
-        setLoading('success')
+        setError(result.message || 'No se pudieron cargar especialidades')
+        setSpecialties([])
+        setLoading('error')
       }
     } catch (err) {
-      // Fallback a datos mock si hay error de conexión
-      console.warn('Error de conexion, usando datos mock para especialidades')
-      setSpecialties(especialidades)
-      setError(null)
-      setLoading('success')
+      setError('Error de conexión al cargar especialidades')
+      setSpecialties([])
+      setLoading('error')
     }
   }, [])
 
@@ -118,7 +118,7 @@ export function useBackendAPI() {
     try {
       const result = await apiService.getDoctorsBySpecialty(especialidad)
       if (result.success) {
-        const rawData = result.data?.data || result.data
+        const rawData = unwrap(result.data)
         const doctorsData = Array.isArray(rawData) ? rawData : []
         setDoctors(doctorsData)
         setError(null)
@@ -150,7 +150,7 @@ export function useBackendAPI() {
       if (result.success) {
         // El backend devuelve {success: true, data: [...], total: X}
         console.log('Estructura completa de result.data para agendas:', result.data)
-        const rawData = result.data?.data || result.data
+        const rawData = unwrap(result.data)
         const agendasData = Array.isArray(rawData) ? rawData : []
         setAgendas(agendasData)
         setError(null)
@@ -161,18 +161,14 @@ export function useBackendAPI() {
           console.log('Estructura completa de la primera agenda:', JSON.stringify(agendasData[0], null, 2))
         }
       } else {
-        // Fallback a datos mock si el backend falla
-        console.warn('Usando datos mock para agendas')
-        setAgendas(mockAgendas)
-        setError(null)
-        setLoading('success')
+        setError(result.message || 'No se pudieron cargar agendas')
+        setAgendas([])
+        setLoading('error')
       }
     } catch (err) {
-      // Fallback a datos mock si hay error de conexión
-      console.warn('Error de conexion, usando datos mock para agendas')
-      setAgendas(mockAgendas)
-      setError(null)
-      setLoading('success')
+      setError('Error de conexión al cargar agendas')
+      setAgendas([])
+      setLoading('error')
     }
   }, [])
 
@@ -287,7 +283,7 @@ export function useBackendAPI() {
       const result = await apiService.getBuildings()
       if (result.success) {
         // El backend devuelve {success: true, data: [...], total: X}
-        const rawData = result.data?.data || result.data
+        const rawData = unwrap(result.data)
         const buildingsData = Array.isArray(rawData) ? rawData : []
         setBuildings(buildingsData)
         setError(null)
@@ -295,18 +291,14 @@ export function useBackendAPI() {
         console.log(`Edificios cargados: ${buildingsData.length} registros`)
         console.log('Edificios:', buildingsData)
       } else {
-        // Fallback a datos mock si el backend falla
-        console.warn('Usando datos mock para edificios')
-        setBuildings(mockEdificios)
-        setError(null)
-        setLoading('success')
+        setError(result.message || 'No se pudieron cargar edificios')
+        setBuildings([])
+        setLoading('error')
       }
     } catch (err) {
-      // Fallback a datos mock si hay error de conexión
-      console.warn('Error de conexion, usando datos mock para edificios')
-      setBuildings(mockEdificios)
-      setError(null)
-      setLoading('success')
+      setError('Error de conexión al cargar edificios')
+      setBuildings([])
+      setLoading('error')
     }
   }, [])
 
@@ -315,7 +307,7 @@ export function useBackendAPI() {
     try {
       const result = await apiService.getConsultorios()
       if (result.success) {
-        const rawData = result.data?.data || result.data
+        const rawData = unwrap(result.data)
         const consultoriosData = Array.isArray(rawData) ? rawData : []
         // Normalizar llaves posibles del backend (CD_* mayúsculas)
         const normalized = consultoriosData.map((c: any) => ({
@@ -332,16 +324,14 @@ export function useBackendAPI() {
         setError(null)
         setLoading('success')
       } else {
-        console.warn('Backend no retornó consultorios exitosamente, usando datos mock')
-        setConsultorios(mockConsultorios)
-        setError(null)
-        setLoading('success')
+        setError(result.message || 'Error al cargar consultorios')
+        setConsultorios([])
+        setLoading('error')
       }
     } catch (err) {
-      console.warn('Error al cargar consultorios del backend, usando datos mock')
-      setConsultorios(mockConsultorios)
-      setError(null)
-      setLoading('success')
+      setError('Error al cargar consultorios')
+      setConsultorios([])
+      setLoading('error')
     }
   }, [])
 
@@ -350,7 +340,7 @@ export function useBackendAPI() {
     try {
       const result = await apiService.getDays()
       if (result.success) {
-        const rawData = result.data?.data || result.data
+        const rawData = unwrap(result.data)
         const daysData = Array.isArray(rawData) ? rawData : []
         setDays(daysData)
         setError(null)

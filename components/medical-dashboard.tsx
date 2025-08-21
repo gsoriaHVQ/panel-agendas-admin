@@ -33,8 +33,8 @@ import {
 import { useBackendAPI } from "@/hooks/use-backend-api"
 import { DebugInfo } from "@/components/debug-info"
 import { AgendaDebug } from "@/components/agenda-debug"
-import BtnExportarStaff from "@/src/components/BtnExportarStaff"
-import { StaffItem } from "@/src/lib/excel/generateStaffWorkbook"
+import BtnExportarStaff from "@/components/BtnExportarStaff"
+import { StaffItem } from "@/lib/excel/generateStaffWorkbook"
 import { Especialidad } from "@/lib/mock-data"
 
 interface MedicalDashboardProps {
@@ -850,7 +850,6 @@ export default function MedicalDashboard({ onLogout }: MedicalDashboardProps) {
 
   const getAvailableFloors = (edificio: string): string[] => {
     if (!edificio || !consultorios.length) {
-      console.log('No hay edificio seleccionado o consultorios no cargados aún')
       return []
     }
 

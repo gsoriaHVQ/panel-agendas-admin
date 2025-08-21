@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server"
-import { mockAgendas } from "@/lib/mock-data"
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const id = Number.parseInt(params.id)
-    const agenda = mockAgendas.find((a) => a.id === id)
-
-    if (!agenda) {
-      return NextResponse.json({ error: "Agenda not found" }, { status: 404 })
-    }
 
     await new Promise((resolve) => setTimeout(resolve, 300))
-
-    return NextResponse.json(agenda)
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch agenda" }, { status: 500 })
   }

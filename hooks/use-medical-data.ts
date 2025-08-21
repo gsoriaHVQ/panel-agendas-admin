@@ -48,25 +48,25 @@ export function useMedicalData() {
         throw new Error("Failed to load data")
       }
 
-      setDoctors(doctorsRes.data)
-      setAgendas(agendasRes.data)
-      setBuildings(buildingsRes.data)
-      setSpecialties(specialtiesRes.data)
-
+      setDoctors(doctorsRes.data || [])
+      setAgendas(agendasRes.data || [])
+      setBuildings(buildingsRes.data || [])
+      setSpecialties(specialtiesRes.data || [])
+      
       // Combine data for table display
-      const combinedRecords: CombinedRecord[] = agendasRes.data.map((agenda) => {
-        const doctor = doctorsRes.data.find((d) => d.codigo_item === agenda.codigo_prestador)
+      const combinedRecords: CombinedRecord[] = (agendasRes.data || []).map((agenda) => {
+        const doctor = (doctorsRes.data || []).find((d) => d.codigo_item?.toString() === agenda.codigo_prestador?.toString())
         return {
-          id: `${agenda.id}-${doctor?.id || 0}`,
+          id: `${agenda.codigo_agenda || 0}-${doctor?.id || 0}`, 
           doctorId: doctor?.id || 0,
-          agendaId: agenda.id,
-          nombre: doctor?.nombre || "Doctor no encontrado",
-          especialidad: doctor?.especialidad || "Sin especialidad",
-          tipo: agenda.tipo,
-          edificio: agenda.edificio,
-          piso: agenda.piso,
-          fecha: agenda.fecha,
-          estado: agenda.estado,
+          agendaId: agenda.codigo_agenda || 0,
+          nombre: doctor?.nombres || "Doctor no encontrado",
+          especialidad: doctor?.especialidades?.[0]?.descripcion || "Sin especialidad",
+          tipo: agenda.tipo === "C" ? "Consulta" : "Procedimiento",
+          edificio: agenda.edificio || "Sin edificio",
+          piso: agenda.piso || "Sin piso",
+          fecha: agenda.hora_inicio || "", // Usar hora_inicio como fecha
+          estado: agenda.estado || "Activa",
           isEditing: false,
         }
       })
@@ -84,11 +84,11 @@ export function useMedicalData() {
       if (record.agendaId === 0) {
         // Create new agenda
         const newAgenda = {
-          codigo_prestador: `MED${String(record.doctorId).padStart(3, "0")}`,
-          tipo: record.tipo,
+          codigo_prestador: record.doctorId,
+          tipo: record.tipo === "Consulta" ? "C" : "P",
           edificio: record.edificio,
           piso: record.piso,
-          fecha: record.fecha,
+          hora_inicio: record.fecha, // Usar fecha como hora_inicio
           estado: record.estado,
         }
 
@@ -99,10 +99,10 @@ export function useMedicalData() {
       } else {
         // Update existing agenda
         const updatedAgenda = {
-          tipo: record.tipo,
+          tipo: record.tipo === "Consulta" ? "C" : "P",
           edificio: record.edificio,
           piso: record.piso,
-          fecha: record.fecha,
+          hora_inicio: record.fecha, // Usar fecha como hora_inicio
           estado: record.estado,
         }
 
