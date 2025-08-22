@@ -7,10 +7,17 @@
   /* Hospital Vozandes Quito custom color scheme */
   --hvq-primary: #7f0c43;
   --hvq-secondary: #c84d80;
+  --hvq-secondary-hover: #b8437a;
+  --hvq-primary-hover: #6a0a38;
   --hvq-light-bg: #f9f4f6;
   --hvq-light-gray: #e5e5e5;
   --hvq-dark-text: #333333;
   --hvq-light-text: #ffffff;
+  --hvq-muted-text: #666666;
+  --hvq-success: #10b981;
+  --hvq-warning: #f59e0b;
+  --hvq-error: #ef4444;
+  --hvq-info: #3b82f6;
 
   --background: #f9f4f6;
   --foreground: #333333;
@@ -26,8 +33,8 @@
   --muted-foreground: #666666;
   --accent: #c84d80;
   --accent-foreground: #ffffff;
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
   --border: #e5e5e5;
   --input: #e5e5e5;
   --ring: #7f0c43;
@@ -129,8 +136,89 @@
   * {
     @apply border-border outline-ring/50;
   }
+  
   body {
     @apply bg-background text-foreground;
     font-family: Arial, sans-serif;
   }
+  
+  /* Configuración para evitar barras de desplazamiento no deseadas */
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Optimizar scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+  }
 }
+
+/* Clases utilitarias para colores HVQ */
+.hvq-bg-primary { background-color: var(--hvq-primary); }
+.hvq-bg-secondary { background-color: var(--hvq-secondary); }
+.hvq-bg-light { background-color: var(--hvq-light-bg); }
+.hvq-bg-white { background-color: var(--hvq-light-text); }
+
+.hvq-text-primary { color: var(--hvq-primary); }
+.hvq-text-secondary { color: var(--hvq-secondary); }
+.hvq-text-dark { color: var(--hvq-dark-text); }
+.hvq-text-light { color: var(--hvq-light-text); }
+.hvq-text-muted { color: var(--hvq-muted-text); }
+
+.hvq-border { border-color: var(--hvq-light-gray); }
+.hvq-border-primary { border-color: var(--hvq-primary); }
+
+.hvq-hover-primary:hover { background-color: var(--hvq-primary-hover); }
+.hvq-hover-secondary:hover { background-color: var(--hvq-secondary-hover); }
+
+/* Estados de botones */
+.hvq-btn-primary {
+  background-color: var(--hvq-primary);
+  color: var(--hvq-light-text);
+}
+
+.hvq-btn-primary:hover {
+  background-color: var(--hvq-primary-hover);
+}
+
+.hvq-btn-secondary {
+  background-color: var(--hvq-secondary);
+  color: var(--hvq-light-text);
+}
+
+.hvq-btn-secondary:hover {
+  background-color: var(--hvq-secondary-hover);
+}
+
+.hvq-btn-outline {
+  border-color: var(--hvq-light-gray);
+  color: var(--hvq-dark-text);
+  background-color: transparent;
+}
+
+.hvq-btn-outline:hover {
+  background-color: var(--hvq-light-text);
+}
+
+/* Estados de éxito, error, etc. */
+.hvq-success { color: var(--hvq-success); }
+.hvq-error { color: var(--hvq-error); }
+.hvq-warning { color: var(--hvq-warning); }
+.hvq-info { color: var(--hvq-info); }

@@ -1,7 +1,7 @@
 // API Service for Hospital Vozandes Quito Medical Scheduling System
 // Conectado al backend real en puerto 3001
 
-import type { Doctor, Agenda, Edificio } from "./mock-data"
+import type { Doctor, Agenda, Edificio } from "./agendas-data"
 
 // Configuración para conectar con el backend real
 const API_CONFIG = {

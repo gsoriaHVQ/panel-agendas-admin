@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { mockDoctors } from "@/lib/mock-data"
+// Los datos ahora vienen del backend real
 
 export async function GET() {
   try {

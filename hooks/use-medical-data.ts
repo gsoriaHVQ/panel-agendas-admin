@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { apiService } from "@/lib/api-service"
-import type { Doctor, Agenda, Edificio } from "@/lib/mock-data"
+import type { Doctor, Agenda, Edificio } from "@/lib/types"
 
 interface CombinedRecord {
   id: string

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { especialidades } from "@/lib/mock-data"
+import { especialidades } from "@/lib/agendas-data"
 
 export async function GET() {
   try {

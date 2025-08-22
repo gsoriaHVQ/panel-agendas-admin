@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { apiService } from "@/lib/api-service"
-import type { Doctor, Agenda, Edificio, Especialidad } from "@/lib/mock-data"
+import type { Doctor, Agenda, Edificio, Especialidad } from "@/lib/types"
 
 // Estados de carga
 export type LoadingState = 'idle' | 'loading' | 'success' | 'error'
