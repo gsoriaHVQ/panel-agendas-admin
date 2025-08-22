@@ -1,78 +1,65 @@
-# ===========================================
-# DOCKERFILE OPTIMIZADO PARA PRODUCCIÓN
-# ===========================================
-
-# Etapa 1: Dependencias de desarrollo
+# ====================================================================================
+#  Etapa 1: Dependencias (Instalación de dependencias de producción)
+# ====================================================================================
 FROM node:18-alpine AS deps
 WORKDIR /app
 
-# Instalar pnpm globalmente
+# Instalar pnpm
 RUN npm install -g pnpm
 
-# Instalar dependencias del sistema necesarias
-RUN apk add --no-cache libc6-compat
+# Copiar package.json y pnpm-lock.yaml
+COPY package.json pnpm-lock.yaml ./
 
-# Copiar archivos de dependencias
-COPY package.json pnpm-lock.yaml* ./
-COPY next.config.mjs ./
-
-# Instalar todas las dependencias usando pnpm
+# Instalar solo las dependencias de producción
 RUN pnpm install --frozen-lockfile --prod
 
-# Etapa 2: Builder - Compilar la aplicación
+# ====================================================================================
+#  Etapa 2: Builder (Compilación del proyecto)
+# ====================================================================================
 FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Instalar pnpm globalmente
+# Instalar pnpm
 RUN npm install -g pnpm
 
-# Copiar dependencias instaladas
+# Copiar dependencias de la etapa anterior
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Configurar variables de entorno para build
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
+# Instalar todas las dependencias (incluyendo devDependencies)
+ENV NODE_ENV=development
+RUN pnpm install --frozen-lockfile
 
-# Construir la aplicación
+# Construir el proyecto de Next.js
+ENV NODE_ENV=production
 RUN pnpm run build
 
-# Etapa 3: Runner - Imagen final optimizada
+# ====================================================================================
+#  Etapa 3: Runner (Imagen final de producción)
+# ====================================================================================
 FROM node:18-alpine AS runner
 WORKDIR /app
 
-# Crear usuario no-root para seguridad
+# Establecer el entorno de producción
+ENV NODE_ENV=production
+# Deshabilitar la telemetría de Next.js
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Crear un usuario no root para mayor seguridad
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Instalar dependencias del sistema
-RUN apk add --no-cache curl
-
-# Copiar archivos necesarios
+# Copiar los artefactos de compilación necesarios
 COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
-# Copiar archivos de Next.js optimizados
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-# Crear directorio para logs
-RUN mkdir -p /app/logs && chown -R nextjs:nodejs /app/logs
-
-# Cambiar al usuario no-root
+# Cambiar al usuario no root
 USER nextjs
 
-# Exponer puerto
+# Exponer el puerto en el que la aplicación se ejecutará
 EXPOSE 3000
 
-# Variables de entorno
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
-
-# Comando de inicio
-CMD ["node", "server.js"]
+# Comando para iniciar la aplicación
+CMD ["npm", "start"]
